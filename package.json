@@ -1,0 +1,48 @@
+{
+  "name": "starclaw",
+  "version": "2.0.0-alpha.0",
+  "description": "A governed autonomous AI agent: every action is policy-checked, approval-gated, spend-capped and written to a tamper-evident audit log.",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "bin": {
+    "starclaw": "dist/cli.js",
+    "starclaw-telegram": "dist/telegram.js",
+    "starclaw-server": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "public",
+    "README.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=25.9.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.js",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run clean && npm run build && npm test",
+    "cli": "node dist/cli.js",
+    "server": "node dist/server.js",
+    "doctor": "node dist/cli.js doctor",
+    "telegram": "node dist/telegram.js"
+  },
+  "dependencies": {
+    "@mnemopay/sdk": "^1.16.0",
+    "commander": "^14.0.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "groq-sdk": "^1.1.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

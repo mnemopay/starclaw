@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StarClaw Console</title>
+<style>
+  :root { --bg:#0b0d0f; --panel:#15181b; --line:#2a2f35; --text:#e8eaed; --muted:#8b949e; --accent:#7c3aed; --warn:#f59e0b; --bad:#ef4444; --good:#22c55e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, sans-serif; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; justify-content:space-between; }
+  h1 { font-size:16px; margin:0; font-weight:600; }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:16px 20px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  h2 { font-size:13px; margin:0 0 10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  input, textarea { width:100%; background:#0f1113; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:8px 14px; cursor:pointer; font:inherit; }
+  button.deny { background:var(--bad); } button.ok { background:var(--good); color:#000; } button.ghost { background:transparent; border:1px solid var(--line); color:var(--muted); }
+  pre { white-space:pre-wrap; word-break:break-word; background:#0f1113; border:1px solid var(--line); border-radius:6px; padding:10px; margin:8px 0; max-height:320px; overflow:auto; font:12px/1.4 ui-monospace, monospace; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid var(--line); }
+  .tainted { color:var(--warn); border-color:var(--warn); }
+  .clean { color:var(--good); border-color:var(--good); }
+</style>
+</head>
+<body>
+<header>
+  <h1>StarClaw Console</h1>
+  <div><span id="taint" class="tag">unknown</span> <button class="ghost" id="newsession">New session</button></div>
+</header>
+<main>
+  <section>
+    <h2>API key</h2>
+    <input id="key" type="password" placeholder="STARCLAW_API_KEY" autocomplete="off">
+    <h2 style="margin-top:16px">Goal</h2>
+    <textarea id="goal" rows="3" placeholder="What should StarClaw do?"></textarea>
+    <div class="row"><button id="send">Run</button></div>
+    <h2 style="margin-top:16px">Job output</h2>
+    <pre id="out">(nothing yet)</pre>
+  </section>
+  <section>
+    <h2>Pending approvals</h2>
+    <div id="approvals"></div>
+  </section>
+</main>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var jobId = null;
+  function headers() { return { 'Authorization': 'Bearer ' + $('key').value, 'Content-Type': 'application/json' }; }
+  function api(path, opts) {
+    opts = opts || {}; opts.headers = headers();
+    return fetch('/api' + path, opts).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.status); return j; }); });
+  }
+  function renderApprovals(list) {
+    var box = $('approvals'); box.textContent = '';
+    if (!list.length) { box.textContent = 'None.'; return; }
+    list.forEach(function (a) {
+      var pre = document.createElement('pre'); pre.textContent = a.description; // textContent only: never innerHTML
+      var row = document.createElement('div'); row.className = 'row';
+      [['approve', 'Approve', 'ok'], ['deny', 'Deny', 'deny']].forEach(function (b) {
+        var btn = document.createElement('button'); btn.textContent = b[1]; btn.className = b[2];
+        btn.onclick = function () { api('/approvals/' + encodeURIComponent(a.id), { method: 'POST', body: JSON.stringify({ decision: b[0] }) }).then(poll); };
+        row.appendChild(btn);
+      });
+      box.appendChild(pre); box.appendChild(row);
+    });
+  }
+  function poll() {
+    if (!$('key').value) return;
+    api('/status').then(function (s) { var t = $('taint'); t.textContent = s.tainted ? 'session TAINTED' : 'session clean'; t.className = 'tag ' + (s.tainted ? 'tainted' : 'clean'); }).catch(function () {});
+    api('/approvals').then(function (r) { renderApprovals(r.approvals); }).catch(function () {});
+    if (jobId) api('/jobs/' + jobId).then(function (j) {
+      var txt = j.logs.join('\n');
+      if (j.result) txt += '\n\n' + (j.result.stdout || '') + (j.result.reply || '') + (j.result.result != null ? '\n' + JSON.stringify(j.result.result, null, 2) : '') + (j.result.error ? '\nFAILED: ' + j.result.error : '');
+      $('out').textContent = '[' + j.status + ']\n' + txt;
+    }).catch(function () {});
+  }
+  $('send').onclick = function () {
+    api('/goal', { method: 'POST', body: JSON.stringify({ goal: $('goal').value }) }).then(function (r) { jobId = r.id; poll(); }).catch(function (e) { $('out').textContent = 'Error: ' + e.message; });
+  };
+  $('newsession').onclick = function () { api('/session/new', { method: 'POST', body: '{}' }).then(poll); };
+  setInterval(poll, 1500);
+})();
+</script>
+</body>
+</html>

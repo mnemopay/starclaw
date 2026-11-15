@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tgz
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+workspace/
+audit/
+.starclaw/
+skills/*
+!skills/.gitkeep
