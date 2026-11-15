@@ -70,7 +70,16 @@ export class Broker {
 
   /** Hard rules no policy can relax. Throws after writing an audit record. */
   private checkPath(rawPath: string, write: boolean): { real: string; inWorkspace: boolean } {
-    const real = realResolve(path.resolve(this.workspace, rawPath));
+    const resolved = path.resolve(this.workspace, rawPath);
+    // UNC and device paths (\\server\share, \\localhost\C$\..., \\?\..., \\.\...) can name a local file under a
+    // different spelling that the directory comparisons below do not recognise: a red-team run read the audit
+    // signing key through \\localhost\C$\<state dir>. Never accept them, whatever the policy says.
+    if (process.platform === 'win32' && resolved.startsWith('\\\\')) {
+      const why = 'UNC and device paths (\\\\server\\share, \\\\?\\, \\\\.\\) are not allowed';
+      this.gov.audit.append('hard-rule.denied', { class: write ? 'fs.write' : 'fs.read', target: resolved, reason: why });
+      throw new Error(`denied by hard rule: ${why}`);
+    }
+    const real = realResolve(resolved);
     const inWorkspace = isInside(real, this.workspace);
     const base = path.basename(real).toLowerCase();
     let why: string | undefined;
