@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.0-alpha.3 (unreleased)
+
+### Added
+* `tools.shell` and `starclaw shell build|status|clean`: commands run in a locked-down, network-less container against a COPY of the workspace; changes come back through a defensive tar parser and the broker's write rules (see SECURITY.md 1b for the bind-mount/junction experiment that decided this).
+* Scheduler: `starclaw schedule add|list|remove|pause|resume`, `starclaw daemon`, heartbeat jobs, a per-run Governor with origin `scheduled`, daily and per-run caps, backoff and auto-pause.
+* Asynchronous approvals for unattended runs through Telegram (`scheduled.defaultVerdictForAsk: ask-async`); unapproved or expired means denied.
+* `tools.notifyOwner` (owner-only, rate-limited, governed) and `tools.scheduleCreate` (always asks).
+* Policy sections `shell`, `scheduled`, `notify`; action classes `shell.exec`, `host.exec`, `schedule.create`, `notify.owner`.
+
+### Changed
+* BREAKING: `tools.runCommand` is now action class `host.exec` (was `exec`). Policy rules for `exec` no longer cover it. It is denied with no approver and in every scheduled run, even if the policy allows it.
+* `starclaw-telegram` now also runs the scheduler.
+
 ## 2.0.0-alpha.2
 
 Model providers, governed file editing, web search and readable fetch. Every new tool goes through the broker and the governor (audit before run).

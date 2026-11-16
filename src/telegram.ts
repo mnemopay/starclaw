@@ -1,7 +1,5 @@
 #!/usr/bin/env node
-import * as dotenv from 'dotenv';
-import { createEngine } from './bootstrap';
-import { FetchTelegramApi, TelegramApprover, TelegramPoller, TelegramUpdate, TelegramApi } from './channels/telegram';
+import type { TelegramApprover, TelegramUpdate, TelegramApi } from './channels/telegram';
 import type { StarClawEngine } from './engine';
 
 /**
@@ -40,21 +38,9 @@ export function createTelegramHandler(engine: StarClawEngine, api: TelegramApi, 
 }
 
 async function main() {
-  dotenv.config({ quiet: true } as any);
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const ownerRaw = process.env.TELEGRAM_OWNER_ID;
-  if (!token || !ownerRaw || !/^-?\d+$/.test(ownerRaw)) {
-    console.error('starclaw-telegram: TELEGRAM_BOT_TOKEN and a numeric TELEGRAM_OWNER_ID are required. Refusing to start.');
-    process.exit(1);
-  }
-  const ownerId = Number(ownerRaw);
-  const api = new FetchTelegramApi(token);
-  const approver = new TelegramApprover(api, ownerId);
-  const engine = createEngine({ policy: process.env.STARCLAW_POLICY }, approver);
-  await engine.boot();
-  const handler = createTelegramHandler(engine, api, approver, ownerId, process.env.TELEGRAM_ALLOW_PUBLIC === '1');
-  console.log('starclaw-telegram: running');
-  await new TelegramPoller(api, handler, (s) => console.error(s)).run();
+  // Same process as "starclaw daemon": Telegram gateway + scheduler. Refuses to start without a token and a numeric owner id.
+  const { runDaemon } = await import('./daemon');
+  await runDaemon({ policy: process.env.STARCLAW_POLICY });
 }
 
 if (require.main === module) main().catch((e) => { console.error(`starclaw-telegram: ${e.message}`); process.exit(1); });

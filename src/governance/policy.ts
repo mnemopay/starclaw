@@ -16,6 +16,74 @@ const RuleSchema = z
   })
   .strict();
 
+export const ShellPolicySchema = z
+  .object({
+    /** Only "none" exists. Adding open networking to the shell container is intentionally not possible via policy. */
+    network: z.literal('none').default('none'),
+    timeoutSeconds: z.number().int().min(1).max(600).default(60),
+    memoryMb: z.number().int().min(64).max(1024).default(256),
+    pidsLimit: z.number().int().min(16).max(512).default(128),
+    maxOutputBytes: z.number().int().min(1024).max(2_000_000).default(64_000),
+    /** Image built by `starclaw shell build`. Default: starclaw-shell:<package version>. */
+    image: z.string().regex(/^[a-z0-9][a-z0-9._/:@-]{0,200}$/).optional(),
+    /** Limits on the workspace copy that goes into the container (and on what may come back). */
+    workspace: z
+      .object({
+        maxFiles: z.number().int().min(1).max(20_000).default(2000),
+        maxBytes: z.number().int().min(1024).max(256_000_000).default(32_000_000),
+        maxFileBytes: z.number().int().min(1024).max(64_000_000).default(8_000_000),
+        maxChangedFiles: z.number().int().min(0).max(5000).default(500),
+        maxDeletedFiles: z.number().int().min(0).max(5000).default(100),
+      })
+      .strict()
+      .default({ maxFiles: 2000, maxBytes: 32_000_000, maxFileBytes: 8_000_000, maxChangedFiles: 500, maxDeletedFiles: 100 }),
+  })
+  .strict();
+
+export const ScheduledPolicySchema = z
+  .object({
+    /** Total scheduled runs per UTC day, all jobs together. */
+    maxRunsPerDay: z.number().int().min(0).max(10_000).default(24),
+    /** LLM spend per UTC day attributable to scheduled runs (integer cents), on top of llmBudget.perDayCents. */
+    maxLlmCentsPerDay: z.number().int().min(0).max(1_000_000).default(50),
+    maxJobsTotal: z.number().int().min(0).max(1000).default(10),
+    /** What an unattended run does with an `ask`: deny at once, or ask the owner through an asynchronous approver (Telegram). */
+    defaultVerdictForAsk: z.enum(['deny', 'ask-async']).default('deny'),
+    /** How long an asynchronous approval stays valid before it is a deny. */
+    approvalTimeoutSeconds: z.number().int().min(30).max(86_400).default(900),
+    /** Shortest allowed gap between runs of one job (also bounds cron expressions). */
+    minIntervalSeconds: z.number().int().min(60).max(86_400).default(300),
+    /** Wall-clock cap for one scheduled run. */
+    maxRunSeconds: z.number().int().min(10).max(7200).default(600),
+    maxRunsPerJobPerDay: z.number().int().min(1).max(10_000).default(24),
+    /** After this many consecutive failures a job is paused. */
+    maxConsecutiveFailures: z.number().int().min(1).max(100).default(5),
+    backoffBaseSeconds: z.number().int().min(10).max(3600).default(60),
+    /** IANA timezone used to interpret cron expressions. */
+    timezone: z
+      .string()
+      .min(1)
+      .max(64)
+      .refine((tz) => {
+        try {
+          new Intl.DateTimeFormat('en-US', { timeZone: tz });
+          return true;
+        } catch {
+          return false;
+        }
+      }, 'not a valid IANA timezone')
+      .default('UTC'),
+  })
+  .strict();
+
+export const NotifyPolicySchema = z
+  .object({
+    maxPerHour: z.number().int().min(0).max(1000).default(4),
+    maxPerDay: z.number().int().min(0).max(10_000).default(20),
+    maxChars: z.number().int().min(20).max(3500).default(1000),
+  })
+  .strict();
+
 export const PolicySchema = z
   .object({
     version: z.literal(1),
@@ -30,9 +98,19 @@ export const PolicySchema = z
         spend: VerdictSchema.default('ask'),
         'skill.save': VerdictSchema.default('ask'),
         'memory.write': VerdictSchema.default('ask'),
+        'shell.exec': VerdictSchema.default('ask'),
+        /** LEGACY unsandboxed host command. `ask` here means: a human at the terminal/Telegram must approve; with no approver, and in every scheduled run, it is denied. */
+        'host.exec': VerdictSchema.default('ask'),
+        /** Whatever this says, an agent-created schedule always needs a human (see ALWAYS_ASK). */
+        'schedule.create': VerdictSchema.default('ask'),
+        /** Messages only ever go to the configured owner; rate-limited and length-capped. Tainted sessions escalate to ask. */
+        'notify.owner': VerdictSchema.default('allow'),
       })
       .strict()
-      .default({ exec: 'ask', 'fs.read': 'ask', 'fs.write': 'ask', 'net.egress': 'ask', spend: 'ask', 'skill.save': 'ask', 'memory.write': 'ask' }),
+      .default({
+        exec: 'ask', 'fs.read': 'ask', 'fs.write': 'ask', 'net.egress': 'ask', spend: 'ask', 'skill.save': 'ask', 'memory.write': 'ask',
+        'shell.exec': 'ask', 'host.exec': 'ask', 'schedule.create': 'ask', 'notify.owner': 'allow',
+      }),
     rules: z.array(RuleSchema).max(500).default([{ class: 'fs.read', inWorkspace: true, verdict: 'allow' }]),
     spend: z
       .object({
@@ -115,7 +193,13 @@ export const PolicySchema = z
       })
       .strict()
       .default({ provider: 'none', allowPrivateProvider: false, maxResults: 10 }),
-    /** Treat stdout of host commands as untrusted (taints the session). */
+    /** The governed shell container (tools.shell). Network is "none" only: there is deliberately no way to open it up. */
+    shell: ShellPolicySchema.default(ShellPolicySchema.parse({})),
+    /** Scheduler / heartbeat (unattended runs). Conservative defaults. */
+    scheduled: ScheduledPolicySchema.default(ScheduledPolicySchema.parse({})),
+    /** tools.notifyOwner limits. */
+    notify: NotifyPolicySchema.default(NotifyPolicySchema.parse({})),
+    /** Treat stdout of host commands and of the shell container as untrusted (taints the session). */
     execOutputTaints: z.boolean().default(true),
   })
   .strict();

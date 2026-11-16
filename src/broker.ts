@@ -11,6 +11,9 @@ import { safeGet, parseHttpUrl } from './net/safeFetch';
 import { extractReadable, looksBinary, looksLikeHtml } from './net/readable';
 import { createSearchProvider, SearchProvider } from './search/providers';
 import type { BrokerCall } from './sandbox/ProcessSandbox';
+import type { OwnerNotifier, NotifyLimiter } from './notify/Notifier';
+import type { JobStore } from './scheduler/JobStore';
+import type { ShellRunner } from './shell/ShellRunner';
 
 const MAX_FILE_BYTES = 1_000_000;
 const MAX_WRITE_BYTES = 5_000_000;
@@ -52,6 +55,13 @@ export interface BrokerOptions {
   _unsafeSkipRecheck?: boolean;
   /** TEST-ONLY: use this search provider instead of the one built from the policy. */
   _testSearchProvider?: SearchProvider;
+  /** tools.shell: absent = the tool is not available. */
+  shell?: ShellRunner;
+  /** tools.notifyOwner: absent = the tool is not available. */
+  notifier?: OwnerNotifier;
+  notifyLimiter?: NotifyLimiter;
+  /** tools.scheduleCreate: absent = the tool is not available. */
+  jobs?: JobStore;
 }
 
 const PathArgs = z.object({ path: z.string().min(1).max(1000) }).strict();
@@ -62,6 +72,9 @@ const CmdArgs = z.object({ file: z.string().min(1).max(500), args: z.array(z.str
 const Sha = z.string().regex(/^[0-9a-fA-F]{64}$/);
 const PatchArgs = z.object({ path: z.string().min(1).max(1000), patch: z.string().min(1).max(EDIT_LIMITS.maxPatchBytes), expectSha256: Sha.optional() }).strict();
 const EditArgs = z.object({ path: z.string().min(1).max(1000), find: z.string().min(1).max(100_000), replace: z.string().max(200_000), expectCount: z.number().int().min(1).max(1000).default(1), expectSha256: Sha.optional() }).strict();
+const ShellArgsSchema = z.object({ command: z.string().min(1).max(4000) }).strict();
+const NotifyArgs = z.object({ text: z.string().min(1).max(10_000) }).strict();
+const ScheduleArgs = z.object({ name: z.string().min(1).max(60), schedule: z.string().min(1).max(100), goal: z.string().min(3).max(2000), kind: z.enum(['goal', 'heartbeat']).default('goal') }).strict();
 const SpendArgs = z.object({ cents: z.number(), payee: z.string().min(1).max(200), memo: z.string().max(500).default('') }).strict();
 
 /**
@@ -126,6 +139,12 @@ export class Broker {
         return this.search(SearchArgs.parse(call.args));
       case 'runCommand':
         return this.runCommand(CmdArgs.parse(call.args));
+      case 'shell':
+        return this.shell(ShellArgsSchema.parse(call.args));
+      case 'notifyOwner':
+        return this.notifyOwner(NotifyArgs.parse(call.args));
+      case 'scheduleCreate':
+        return this.scheduleCreate(ScheduleArgs.parse(call.args));
       case 'spend':
         return this.spend(SpendArgs.parse(call.args));
       default:
@@ -392,7 +411,7 @@ export class Broker {
 
   private async runCommand(a: { file: string; args: string[] }) {
     const line = [a.file, ...a.args].join(' ');
-    const action: Action = { class: 'exec', target: path.basename(a.file), summary: `Run host command: ${line}`.slice(0, 300), detail: JSON.stringify({ file: a.file, args: a.args }, null, 2) };
+    const action: Action = { class: 'host.exec', target: path.basename(a.file), summary: `Run host command (UNSANDBOXED): ${line}`.slice(0, 300), detail: JSON.stringify({ file: a.file, args: a.args }, null, 2) };
     const out = await this.gov.governed(
       action,
       () =>
@@ -409,6 +428,122 @@ export class Broker {
     );
     if (this.gov.policy.execOutputTaints) this.gov.taint.mark('tool-output', `exec:${path.basename(a.file)}`);
     return out;
+  }
+
+  /** The broker's write-path hard rules for an absolute host path (used by the shell write-back). Audited on denial. */
+  guardWritePath(abs: string): void {
+    this.checkPath(abs, true);
+  }
+
+  private async shell(a: { command: string }) {
+    const runner = this.o.shell;
+    if (!runner) throw new Error('tools.shell is not available: the shell container is not configured');
+    const command = a.command;
+    const action: Action = {
+      class: 'shell.exec',
+      target: command.replace(/\s+/g, ' ').trim().slice(0, 300),
+      summary: `Run in the locked-down shell container (no network, workspace copied in/out): ${command.replace(/\s+/g, ' ').trim()}`.slice(0, 300),
+      detail: command,
+    };
+    const out = await this.gov.governed(
+      action,
+      () =>
+        runner.run(command, {
+          guard: (abs) => this.checkPath(abs, true),
+          // The exact set of host changes is recorded BEFORE any of them is applied.
+          beforeApply: (plan, staged) =>
+            this.gov.audit.append('shell.writeback.plan', {
+              staged,
+              writes: plan.writes.slice(0, 300).map((w) => ({ path: w.rel, bytes: w.data.length, isNew: w.isNew })),
+              mkdirs: plan.mkdirs.slice(0, 100),
+              deletes: plan.deletes.slice(0, 300),
+              refused: plan.refused.slice(0, 100),
+              unchanged: plan.unchanged,
+            }),
+        }),
+      (r) => ({
+        exitCode: r.exitCode,
+        timedOut: r.timedOut,
+        stdoutBytes: r.stdout.length,
+        stderrBytes: r.stderr.length,
+        written: r.changes?.written.slice(0, 300),
+        deleted: r.changes?.deleted.slice(0, 300),
+        createdDirs: r.changes?.createdDirs.slice(0, 100),
+        refused: r.changes?.refused.slice(0, 100),
+        conflicts: r.changes?.conflicts.slice(0, 100),
+        note: r.note,
+      }),
+    );
+    // Whatever came out of the container is untrusted, and so is every file it produced.
+    if (this.gov.policy.execOutputTaints) this.gov.taint.mark('tool-output', 'shell');
+    for (const rel of out.changes?.written ?? []) this.o.taintedFiles.add(path.join(this.workspace, ...rel.split('/')));
+    return {
+      exitCode: out.exitCode,
+      stdout: out.stdout,
+      stderr: out.stderr,
+      timedOut: out.timedOut,
+      outputTruncated: out.outputTruncated,
+      note: out.note,
+      changes: out.changes && {
+        written: out.changes.written,
+        deleted: out.changes.deleted,
+        createdDirs: out.changes.createdDirs,
+        refused: out.changes.refused,
+        conflicts: out.changes.conflicts,
+      },
+      skippedOnCopyIn: out.staged.skipped.length,
+    };
+  }
+
+  private async notifyOwner(a: { text: string }) {
+    const n = this.o.notifier;
+    if (!n) throw new Error('tools.notifyOwner is not available: no owner channel (e.g. Telegram) is configured');
+    const lim = this.gov.policy.notify;
+    const text = a.text.slice(0, lim.maxChars);
+    try {
+      this.o.notifyLimiter?.check();
+    } catch (e: any) {
+      this.gov.audit.append('notify.rate-limited', { reason: e.message, chars: text.length });
+      throw e;
+    }
+    const ctx = this.gov.runContext;
+    const action: Action = {
+      class: 'notify.owner',
+      target: 'owner',
+      summary: `Send the owner a message (${text.length} chars) via ${n.name}`,
+      detail: text,
+    };
+    return this.gov.governed(
+      action,
+      async () => {
+        const prefix = ctx?.origin === 'scheduled' ? `[StarClaw job ${ctx.jobId?.slice(0, 8) ?? ''}] ` : '[StarClaw] ';
+        await n.send(prefix + text);
+        this.o.notifyLimiter?.record();
+        return { sent: true, chars: text.length };
+      },
+      (r) => ({ chars: r.chars, channel: n.name }),
+    );
+  }
+
+  private async scheduleCreate(a: { name: string; schedule: string; goal: string; kind: 'goal' | 'heartbeat' }) {
+    const jobs = this.o.jobs;
+    if (!jobs) throw new Error('tools.scheduleCreate is not available: the scheduler is not configured');
+    // Validate first so a human is never asked to approve something that cannot be created.
+    const v = jobs.validate(a);
+    const action: Action = {
+      class: 'schedule.create',
+      target: a.name,
+      summary: `Create a recurring ${a.kind} job "${a.name}" (${a.schedule}); it will run UNATTENDED, next at ${new Date(v.nextRunAt).toISOString()}`.slice(0, 300),
+      detail: `name=${a.name}\nkind=${a.kind}\nschedule=${a.schedule}\nshortest gap=${v.gapSeconds}s\ngoal:\n${a.goal}`,
+    };
+    return this.gov.governed(
+      action,
+      async () => {
+        const job = jobs.add({ name: a.name, schedule: a.schedule, goal: a.goal, kind: a.kind, createdBy: 'agent-approved', createdTainted: this.gov.taint.tainted });
+        this.gov.audit.append('scheduler.job.created', { jobId: job.id, name: job.name, kind: job.kind, schedule: job.schedule, createdBy: job.createdBy, createdTainted: job.createdTainted, goalSha: job.goal.length });
+        return { id: job.id, nextRunAt: job.nextRunAt ? new Date(job.nextRunAt).toISOString() : null };
+      },
+    );
   }
 
   private async spend(a: { cents: number; payee: string; memo: string }) {

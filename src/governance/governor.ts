@@ -4,15 +4,27 @@ import { Policy, evaluatePolicy } from './policy';
 import { PaymentRail, SpendAuthority, isValidCents, NoPaymentRail } from './spend';
 import { TaintTracker } from './taint';
 import {
+  ALWAYS_ASK,
   Action,
   ApprovalAnswer,
   ApprovalRequest,
   Approver,
   Decision,
+  DENIED_WHEN_SCHEDULED,
   GovernorDenied,
+  NEVER_AUTO_WHEN_SCHEDULED,
   TAINT_SENSITIVE,
   Verdict,
 } from './types';
+
+/** Who is driving the current run. Set by the engine around each goal; scheduled runs are unattended. */
+export interface RunContext {
+  origin: 'owner' | 'non-owner' | 'scheduled';
+  jobId?: string;
+  triggerAt?: string;
+  /** Epoch ms after which every governed action in this run is denied (scheduled.maxRunSeconds). */
+  deadlineAt?: number;
+}
 
 export interface GovernorOptions {
   policy: Policy;
@@ -35,6 +47,7 @@ export class Governor {
   private approver?: Approver;
   private readonly spendAuthority?: SpendAuthority;
   private readonly rail: PaymentRail;
+  private ctx?: RunContext;
 
   constructor(opts: GovernorOptions) {
     this.policy = opts.policy;
@@ -47,6 +60,13 @@ export class Governor {
 
   setApprover(a: Approver | undefined) {
     this.approver = a;
+  }
+
+  setRunContext(ctx: RunContext | undefined) {
+    this.ctx = ctx;
+  }
+  get runContext(): RunContext | undefined {
+    return this.ctx;
   }
 
   /** Decide whether `action` may run. Never throws for a denial; returns the Decision. */
@@ -73,11 +93,33 @@ export class Governor {
     const ev = evaluatePolicy(this.policy, action);
     let verdict: Verdict = ev.verdict;
     let escalated = false;
+    const scheduled = this.ctx?.origin === 'scheduled';
+
+    // 1b. Unattended runs may never use these classes at all, whatever the policy says.
+    if (scheduled && DENIED_WHEN_SCHEDULED.has(action.class)) {
+      this.audit.append('decision.request', this.auditAction(id, action, provenance, 'deny', false, ev));
+      return this.finish(action, decide(false, 'scheduled-policy', `${action.class} is never allowed in a scheduled (unattended) run`, false));
+    }
+
+    if (scheduled && this.ctx?.deadlineAt !== undefined && Date.now() > this.ctx.deadlineAt) {
+      this.audit.append('decision.request', this.auditAction(id, action, provenance, 'deny', false, ev));
+      return this.finish(action, decide(false, 'scheduled-policy', 'the scheduled run exceeded its wall-clock limit (scheduled.maxRunSeconds)', false));
+    }
 
     // 2. Taint escalation: policy can never auto-allow a tainted sensitive action.
     if (verdict === 'allow' && provenance.tainted && TAINT_SENSITIVE.has(action.class)) {
       verdict = 'ask';
       escalated = true;
+    }
+    // 2b. Some classes are never auto-allowed at all (agent-created schedules), and an unattended run never gets
+    //     an automatic spend/host command from a policy `allow`: a human must be asked.
+    let forcedReason: string | undefined;
+    if (verdict === 'allow' && ALWAYS_ASK.has(action.class)) {
+      verdict = 'ask';
+      forcedReason = `${action.class} always needs a human, whatever the policy says`;
+    } else if (verdict === 'allow' && scheduled && NEVER_AUTO_WHEN_SCHEDULED.has(action.class)) {
+      verdict = 'ask';
+      forcedReason = `${action.class} is never auto-allowed in an unattended run`;
     }
 
     // 3. Spend: refuse impossible spends before bothering a human.
@@ -95,22 +137,41 @@ export class Governor {
     if (verdict === 'deny') {
       return this.finish(action, decide(false, 'policy', `policy rule denies ${action.class}`, escalated));
     }
+    // Legacy unsandboxed host commands: even an explicit policy `allow` needs a human present. With no approver
+    // (non-interactive: --non-interactive, no TTY, a server without a channel) they are denied.
+    if (verdict === 'allow' && action.class === 'host.exec' && !this.approver) {
+      return this.finish(action, decide(false, 'no-approver', 'host.exec (unsandboxed host command) is denied when non-interactive, whatever the policy says', escalated));
+    }
     if (verdict === 'allow') {
       return this.finish(action, decide(true, 'policy', 'allowed by policy', false));
     }
 
     // verdict === 'ask'
+    let timeoutMs = this.policy.approvalTimeoutSeconds * 1000;
+    let scheduledInfo: ApprovalRequest['scheduled'];
+    if (scheduled) {
+      // Nobody is at the terminal. Either deny at once, or ask the owner through an approver that reaches them elsewhere.
+      if (this.policy.scheduled.defaultVerdictForAsk !== 'ask-async') {
+        return this.finish(action, decide(false, 'scheduled-policy', 'approval would be required but this is an unattended scheduled run (scheduled.defaultVerdictForAsk = deny)', escalated));
+      }
+      if (!this.approver?.async) {
+        return this.finish(action, decide(false, 'scheduled-policy', 'approval would be required but no asynchronous approver (e.g. Telegram) is configured for unattended runs', escalated));
+      }
+      timeoutMs = this.policy.scheduled.approvalTimeoutSeconds * 1000;
+      if (this.ctx?.deadlineAt !== undefined) timeoutMs = Math.max(1, Math.min(timeoutMs, this.ctx.deadlineAt - Date.now()));
+      scheduledInfo = { jobId: this.ctx!.jobId ?? 'unknown', triggerAt: this.ctx!.triggerAt ?? 'unknown' };
+    }
     if (!this.approver) {
       return this.finish(action, decide(false, 'no-approver', 'approval required but no approver is configured (non-interactive mode denies)', escalated));
     }
-    const timeoutMs = this.policy.approvalTimeoutSeconds * 1000;
     const req: ApprovalRequest = {
       id,
       action,
       provenance,
-      reason: ev.source === 'rule' ? `policy rule #${ev.ruleIndex} requires approval` : `policy default for ${action.class} is "ask"`,
+      reason: forcedReason ?? (ev.source === 'rule' ? `policy rule #${ev.ruleIndex} requires approval` : `policy default for ${action.class} is "ask"`),
       escalatedByTaint: escalated,
       expiresAt: Date.now() + timeoutMs,
+      scheduled: scheduledInfo,
     };
     const { answer, error, timedOut } = await this.askWithTimeout(req, timeoutMs);
     if (error) return this.finish(action, decide(false, 'approver-error', `approver failed: ${error}`, escalated));
@@ -208,6 +269,9 @@ export class Governor {
       policyRule: ev?.ruleIndex,
       tainted: p.tainted,
       taintSources: p.sources.map((s) => `${s.kind}:${s.ref}`),
+      origin: this.ctx?.origin,
+      jobId: this.ctx?.jobId,
+      triggerAt: this.ctx?.triggerAt,
     };
   }
 

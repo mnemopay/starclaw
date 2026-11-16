@@ -8,7 +8,10 @@ Built-in tools (the ONLY way to touch the outside world; every call is policy-ch
   await tools.applyPatch({ path, patch, expectSha256? })  -> unified diff for ONE file inside ./workspace (also creates files with '--- /dev/null')
   await tools.fetchUrl({ url, format?: 'raw'|'text', maxChars?, maxLinks? })  -> raw: { status, url, contentType, body, truncated }; text: { title, text, links:[{text,url}], detected, truncated }   (HTTP GET only)
   await tools.search({ query, limit? })          -> { provider, results:[{title,url,snippet}], untrusted:true }   (only if the owner enabled a provider)
-  await tools.runCommand({ file, args: [] })     -> { code, stdout, stderr }   (no shell; file + argument list)
+  await tools.shell({ command })                 -> { exitCode, stdout, stderr, timedOut, changes }   (sh -c in a throwaway container: NO network, a COPY of the workspace is mounted at /work and file changes are copied back; preferred way to run commands)
+  await tools.runCommand({ file, args: [] })     -> { code, stdout, stderr }   (LEGACY: runs directly on the host, unsandboxed; usually denied)
+  await tools.notifyOwner({ text })              -> { sent }   (message the owner; rate-limited, max ~1000 chars)
+  await tools.scheduleCreate({ name, schedule, goal, kind })  -> { id }   (recurring unattended job; schedule is cron or "@every 30m"; ALWAYS needs the owner's approval)
   await tools.spend({ cents, payee, memo })      -> integer cents; subject to hard spending caps and human approval
 `.trim();
 
