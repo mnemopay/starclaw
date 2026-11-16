@@ -1,7 +1,7 @@
 import * as dotenv from 'dotenv';
 import { StarClawEngine, EngineOptions } from './engine';
 import { loadPolicy, Policy } from './governance/policy';
-import { GroqLLM } from './llm/GroqLLM';
+import { createLLM } from './llm/factory';
 import type { Approver } from './governance/types';
 
 export interface CommonCliOptions {
@@ -29,7 +29,7 @@ export function createEngine(opts: CommonCliOptions, approver: Approver | undefi
   dotenv.config({ quiet: true } as any);
   const policy = applySandboxFlags(loadPolicy(opts.policy), opts);
   return new StarClawEngine({
-    llm: extra.llm ?? new GroqLLM(),
+    llm: extra.llm ?? createLLM(policy.llm),
     policy,
     stateDir: opts.stateDir ?? process.env.STARCLAW_STATE_DIR,
     workspaceDir: opts.workspace,

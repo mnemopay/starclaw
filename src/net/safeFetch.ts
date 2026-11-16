@@ -7,6 +7,8 @@ export interface SafeFetchOptions {
   allowPrivateAddresses: boolean;
   maxBytes: number;
   timeoutMs: number;
+  /** Extra request headers (e.g. a provider API key). Never forwarded across redirects: redirects are not followed here. */
+  headers?: Record<string, string>;
 }
 export interface SafeFetchResponse {
   status: number;
@@ -86,7 +88,7 @@ export function safeGet(rawUrl: string, opts: SafeFetchOptions): Promise<SafeFet
     const mod = u.protocol === 'https:' ? https : http;
     const req = mod.request(
       u,
-      { method: 'GET', lookup: lookup as any, headers: { 'user-agent': 'starclaw/2', accept: 'text/*, application/json;q=0.9, */*;q=0.1', 'accept-encoding': 'identity' }, timeout: opts.timeoutMs },
+      { method: 'GET', lookup: lookup as any, headers: { ...(opts.headers ?? {}), 'user-agent': 'starclaw/2', accept: 'text/*, application/json;q=0.9, */*;q=0.1', 'accept-encoding': 'identity' }, timeout: opts.timeoutMs },
       (res) => {
         const chunks: Buffer[] = [];
         let size = 0;

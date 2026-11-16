@@ -23,6 +23,9 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\b\d{8,10}:[A-Za-z0-9_-]{30,}\b/g, // Telegram bot token shape
   /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi,
+  /\bBSA[A-Za-z0-9_-]{20,}/g, // Brave Search API key shape
+  /\bAIza[0-9A-Za-z_-]{30,}/g, // Google API key shape
+  /\b(x-api-key|x-subscription-token|api[_-]?key|apikey|authorization)(["'\s]*[:=]["'\s]*)(?!\[REDACTED\])[A-Za-z0-9._~+/=-]{12,}/gi,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
 ];
 

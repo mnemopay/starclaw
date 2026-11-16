@@ -6,6 +6,7 @@ import { applySandboxFlags, createEngine, CommonCliOptions } from './bootstrap';
 import { CliApprover } from './governance/approvers';
 import { verifyAuditFile } from './governance/audit';
 import { defaultPolicy, loadPolicy } from './governance/policy';
+import { describeLlm } from './llm/factory';
 import { SelectingSandbox } from './sandbox/select';
 import type { Sandbox } from './sandbox/types';
 import { buildImage, cleanContainers, defaultImageTag, imageStatus, listSandboxContainers } from './sandbox/dockerImage';
@@ -185,6 +186,11 @@ program
         containerPidsLimit: policy.sandbox.containerPidsLimit,
         containerRuntime: policy.sandbox.containerRuntime,
       });
+      const ld = describeLlm(policy.llm);
+      console.log(`Model: ${ld.provider} / ${ld.model}; key env ${ld.keyEnv}: ${ld.keyPresent ? 'set' : 'NOT set'}; price: ${ld.priceStatus}`);
+      for (const w of ld.warnings) console.log(`  WARNING: ${w}`);
+      const sp = policy.search;
+      console.log(`Search: ${sp.provider}${sp.provider === 'searxng' ? ' (' + (sp.searxngUrl ?? 'no searxngUrl set') + ')' : ''}${sp.provider === 'brave' ? '; key env ' + (sp.apiKeyEnv ?? 'BRAVE_API_KEY') + ': ' + (process.env[sp.apiKeyEnv ?? 'BRAVE_API_KEY'] ? 'set' : 'NOT set') : ''}`);
       const layers: Array<['container' | 'process', Sandbox]> = [['container', sb.container], ['process', sb.proc]];
       for (const [name, layer] of layers) {
         try {

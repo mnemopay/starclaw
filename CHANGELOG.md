@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.0-alpha.2
+
+Model providers, governed file editing, web search and readable fetch. Every new tool goes through the broker and the governor (audit before run).
+
+### Added
+* `llm` policy block: `anthropic` and `openai-compat` (OpenAI, OpenRouter, Ollama, LM Studio) next to Groq. Keys come from environment variables only; plain http is allowed for loopback only; no model name is baked in. Missing `llm.prices` uses a conservative placeholder, flagged in the audit log and in `starclaw doctor`.
+* `tools.editFile` and `tools.applyPatch`: exact find/replace and strict single-file unified diffs. The approver sees the diff; sha256, symlink and file-changed-since-approval checks run again after approval; atomic write; line endings and BOM preserved.
+* `tools.search` (SearXNG or Brave, off by default) and `tools.fetchUrl({ format: 'text' })` readable extraction. Results taint the session.
+
+### Fixed
+* Readable extraction had a quadratic path on floods of unterminated tags (100k `<a ` took ~100 s); it now has a hard work budget.
+
 ## 2.0.0-alpha.1
 
 Container layer for generated code. The 2.0.0-alpha.0 process sandbox is unchanged and remains the fallback.

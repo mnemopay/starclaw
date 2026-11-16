@@ -79,6 +79,42 @@ export const PolicySchema = z
       })
       .strict()
       .default({ timeoutSeconds: 60, maxOutputBytes: 256_000, memoryMb: 256, maxBrokerCalls: 200, mode: 'auto', requireContainer: false, containerPidsLimit: 64 }),
+    /** Model provider. API keys come ONLY from environment variables (never from this file). */
+    llm: z
+      .object({
+        provider: z.enum(['groq', 'anthropic', 'openai-compat']).default('groq'),
+        /** Required for anthropic and openai-compat (no stale defaults are baked in). */
+        model: z.string().regex(/^[A-Za-z0-9._:/@-]{1,120}$/).optional(),
+        /** Optional cheaper model for intent classification. */
+        smallModel: z.string().regex(/^[A-Za-z0-9._:/@-]{1,120}$/).optional(),
+        /** openai-compat: e.g. https://api.openai.com/v1, https://openrouter.ai/api/v1, http://localhost:11434/v1. http is allowed for loopback only. */
+        baseUrl: z.string().url().max(300).optional(),
+        /** NAME of the environment variable holding the key (default GROQ_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY). */
+        apiKeyEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/).optional(),
+        /** Integer cents per million tokens. If omitted, a conservative PLACEHOLDER is used and doctor warns. */
+        prices: z
+          .object({ inputCentsPerMTok: z.number().int().nonnegative().max(1_000_000), outputCentsPerMTok: z.number().int().nonnegative().max(1_000_000) })
+          .strict()
+          .optional(),
+        maxResponseBytes: z.number().int().min(1024).max(20_000_000).default(2_000_000),
+        timeoutSeconds: z.number().int().min(1).max(600).default(60),
+      })
+      .strict()
+      .default({ provider: 'groq', maxResponseBytes: 2_000_000, timeoutSeconds: 60 }),
+    /** Web search provider for tools.search. Default: none (the tool refuses). */
+    search: z
+      .object({
+        provider: z.enum(['none', 'searxng', 'brave']).default('none'),
+        /** Self-hosted SearXNG base URL (JSON output must be enabled on the instance). */
+        searxngUrl: z.string().url().max(300).optional(),
+        /** Allow the provider host itself to be a private/loopback address (typical for a self-hosted SearXNG). Applies to the provider host only. */
+        allowPrivateProvider: z.boolean().default(false),
+        maxResults: z.number().int().min(1).max(20).default(10),
+        /** NAME of the env var holding the Brave key (default BRAVE_API_KEY). */
+        apiKeyEnv: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/).optional(),
+      })
+      .strict()
+      .default({ provider: 'none', allowPrivateProvider: false, maxResults: 10 }),
     /** Treat stdout of host commands as untrusted (taints the session). */
     execOutputTaints: z.boolean().default(true),
   })

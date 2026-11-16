@@ -1,11 +1,15 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
+import { applyUnifiedDiff, EDIT_LIMITS, editByFind, encodeText, readText, unifiedDiff } from './edit';
 import { Governor } from './governance/governor';
 import { TaintedFileStore } from './governance/taint';
 import { Action } from './governance/types';
 import { safeGet, parseHttpUrl } from './net/safeFetch';
+import { extractReadable, looksBinary, looksLikeHtml } from './net/readable';
+import { createSearchProvider, SearchProvider } from './search/providers';
 import type { BrokerCall } from './sandbox/ProcessSandbox';
 
 const MAX_FILE_BYTES = 1_000_000;
@@ -42,12 +46,22 @@ export interface BrokerOptions {
   /** Directory holding keys, audit log, memory db: never readable or writable through the broker. */
   stateDir: string;
   taintedFiles: TaintedFileStore;
+  /** TEST-ONLY: called after approval and before the write is committed (to simulate a racing writer). */
+  _testBeforeCommit?: (real: string) => void | Promise<void>;
+  /** TEST-ONLY CONTROL: skip the post-approval re-checks so a test can prove they are what stops the race. */
+  _unsafeSkipRecheck?: boolean;
+  /** TEST-ONLY: use this search provider instead of the one built from the policy. */
+  _testSearchProvider?: SearchProvider;
 }
 
 const PathArgs = z.object({ path: z.string().min(1).max(1000) }).strict();
 const WriteArgs = z.object({ path: z.string().min(1).max(1000), content: z.string().max(MAX_WRITE_BYTES) }).strict();
-const FetchArgs = z.object({ url: z.string().min(1).max(4000) }).strict();
+const FetchArgs = z.object({ url: z.string().min(1).max(4000), format: z.enum(['raw', 'text']).default('raw'), maxChars: z.number().int().min(200).max(100_000).default(20_000), maxLinks: z.number().int().min(0).max(50).default(20) }).strict();
+const SearchArgs = z.object({ query: z.string().min(1).max(300), limit: z.number().int().min(1).max(20).optional() }).strict();
 const CmdArgs = z.object({ file: z.string().min(1).max(500), args: z.array(z.string().max(2000)).max(64).default([]) }).strict();
+const Sha = z.string().regex(/^[0-9a-fA-F]{64}$/);
+const PatchArgs = z.object({ path: z.string().min(1).max(1000), patch: z.string().min(1).max(EDIT_LIMITS.maxPatchBytes), expectSha256: Sha.optional() }).strict();
+const EditArgs = z.object({ path: z.string().min(1).max(1000), find: z.string().min(1).max(100_000), replace: z.string().max(200_000), expectCount: z.number().int().min(1).max(1000).default(1), expectSha256: Sha.optional() }).strict();
 const SpendArgs = z.object({ cents: z.number(), payee: z.string().min(1).max(200), memo: z.string().max(500).default('') }).strict();
 
 /**
@@ -102,8 +116,14 @@ export class Broker {
         return this.listDir(PathArgs.parse(call.args));
       case 'writeFile':
         return this.writeFile(WriteArgs.parse(call.args));
+      case 'applyPatch':
+        return this.applyPatch(PatchArgs.parse(call.args));
+      case 'editFile':
+        return this.editFile(EditArgs.parse(call.args));
       case 'fetchUrl':
-        return this.fetchUrl(FetchArgs.parse(call.args).url);
+        return this.fetchUrl(FetchArgs.parse(call.args));
+      case 'search':
+        return this.search(SearchArgs.parse(call.args));
       case 'runCommand':
         return this.runCommand(CmdArgs.parse(call.args));
       case 'spend':
@@ -165,9 +185,141 @@ export class Broker {
     );
   }
 
-  private async fetchUrl(startUrl: string) {
+  // ---- file editing ------------------------------------------------------------------------------------------
+
+  /**
+   * Shared front half of applyPatch/editFile: hard path rules, refuse links/binary/mixed EOL/oversized files,
+   * check the optional sha256 precondition, and compute the new bytes + the diff the approver will see.
+   */
+  private prepareEdit(rawPath: string, expectSha256: string | undefined, compute: (origLf: string, exists: boolean) => { ok: true; result: string } | { ok: false; error: string }) {
+    const { real, inWorkspace } = this.checkPath(rawPath, true);
+    // Editing never goes through a link (even one that stays inside the workspace) or an alternate spelling of the path.
+    if (norm(path.resolve(this.workspace, rawPath)) !== norm(real)) throw new Error('refusing to edit through a symbolic link, junction or alternate path spelling');
+    let orig: Buffer | null = null;
+    let lst: fs.Stats | undefined;
+    try {
+      lst = fs.lstatSync(real);
+    } catch {
+      lst = undefined;
+    }
+    if (lst) {
+      if (lst.isSymbolicLink()) throw new Error('refusing to edit through a symbolic link');
+      if (!lst.isFile()) throw new Error('not a regular file');
+      if (lst.size > EDIT_LIMITS.maxFileBytes) throw new Error(`file is larger than ${EDIT_LIMITS.maxFileBytes} bytes`);
+      orig = fs.readFileSync(real);
+    }
+    const shaBefore = orig ? createHash('sha256').update(orig).digest('hex') : null;
+    if (expectSha256 && shaBefore !== expectSha256.toLowerCase()) throw new Error(`expectSha256 precondition failed: the file is ${shaBefore ?? 'absent'}`);
+    let eol: 'lf' | 'crlf' | 'none' = 'lf';
+    let bom = false;
+    let origLf = '';
+    if (orig) {
+      const t = readText(orig);
+      if (!t.ok) throw new Error(t.reason);
+      origLf = t.text;
+      eol = t.eol === 'none' ? 'lf' : t.eol;
+      bom = t.bom;
+    }
+    const r = compute(origLf, !!orig);
+    if (!r.ok) throw new Error(r.error);
+    const label = path.relative(this.workspace, real).split(path.sep).join('/');
+    const d = unifiedDiff(origLf, r.result, label || path.basename(real));
+    return { real, inWorkspace, orig, shaBefore, origLf, newLf: r.result, newBuf: encodeText(r.result, eol, bom), eol, diff: d };
+  }
+
+  private async commitEdit(kind: 'applyPatch' | 'editFile', rawPath: string, prep: ReturnType<Broker['prepareEdit']>) {
+    if (prep.diff.diff === '' && prep.orig) return { path: prep.real, changed: false, sha256Before: prep.shaBefore, sha256After: prep.shaBefore, added: 0, removed: 0 };
+    const action: Action = {
+      class: 'fs.write',
+      target: prep.real,
+      inWorkspace: prep.inWorkspace,
+      summary: `${kind} ${prep.real}: +${prep.diff.added} -${prep.diff.removed} lines, ${prep.newBuf.length} bytes after, ${prep.orig ? 'edit of existing file (sha256 ' + prep.shaBefore!.slice(0, 12) + ')' : 'NEW file'}, ${prep.eol.toUpperCase()} line endings preserved`.slice(0, 400),
+      detail: prep.diff.diff,
+    };
+    return this.gov.governed(
+      action,
+      async () => {
+        await this.o._testBeforeCommit?.(prep.real);
+        const dir = path.dirname(prep.real);
+        if (!this.o._unsafeSkipRecheck) {
+          // Re-run every check AFTER approval: the world may have changed while a human was deciding.
+          const again = this.checkPath(rawPath, true);
+          if (again.real !== prep.real || norm(path.resolve(this.workspace, rawPath)) !== norm(prep.real)) throw new Error('the path now resolves somewhere else (symbolic link or junction swapped in); nothing written');
+          let lst2: fs.Stats | undefined;
+          try {
+            lst2 = fs.lstatSync(prep.real);
+          } catch {
+            lst2 = undefined;
+          }
+          if (lst2?.isSymbolicLink()) throw new Error('target became a symbolic link; nothing written');
+          if (prep.orig) {
+            if (!lst2 || !lst2.isFile()) throw new Error('file disappeared since approval; nothing written');
+            const nowSha = createHash('sha256').update(fs.readFileSync(prep.real)).digest('hex');
+            if (nowSha !== prep.shaBefore) throw new Error('the file changed after the diff was shown to the approver; nothing written');
+          } else if (lst2) throw new Error('a file appeared at the target after approval; nothing written');
+        }
+        fs.mkdirSync(dir, { recursive: true });
+        if (!isInside(realResolve(dir), this.workspace)) throw new Error('directory escaped the workspace; nothing written');
+        const tmp = path.join(dir, `.starclaw-tmp-${randomBytes(6).toString('hex')}`);
+        try {
+          const fd = fs.openSync(tmp, 'wx', prep.orig ? fs.statSync(prep.real).mode & 0o777 : 0o644);
+          try {
+            fs.writeSync(fd, prep.newBuf);
+            fs.fsyncSync(fd);
+          } finally {
+            fs.closeSync(fd);
+          }
+          if (!isInside(realResolve(tmp), this.workspace)) throw new Error('temp file escaped the workspace; nothing written');
+          if (prep.orig) fs.renameSync(tmp, prep.real);
+          else {
+            fs.linkSync(tmp, prep.real); // fails with EEXIST if something appeared meanwhile: never overwrites
+            fs.unlinkSync(tmp);
+          }
+        } catch (e) {
+          try {
+            fs.unlinkSync(tmp);
+          } catch {
+            /* already gone */
+          }
+          throw e;
+        }
+        if (this.gov.taint.tainted) this.o.taintedFiles.add(prep.real);
+        else this.o.taintedFiles.remove(prep.real);
+        const after = createHash('sha256').update(prep.newBuf).digest('hex');
+        return { path: prep.real, changed: true, sha256Before: prep.shaBefore, sha256After: after, added: prep.diff.added, removed: prep.diff.removed };
+      },
+      (r) => ({ changed: r.changed, sha256Before: r.sha256Before, sha256After: r.sha256After, added: r.added, removed: r.removed, via: kind }),
+    );
+  }
+
+  /** Editing reads the file internally (to build the diff), so it must pass the same fs.read gate as readFile: otherwise find/expectCount errors would be a content oracle when reads are restricted. */
+  private async readGate(rawPath: string) {
+    const { real, inWorkspace } = this.checkPath(rawPath, true);
+    await this.gov.governed({ class: 'fs.read', target: real, inWorkspace, summary: `Read ${real} in order to edit it` }, async () => true);
+  }
+
+  private async applyPatch(a: z.infer<typeof PatchArgs>) {
+    await this.readGate(a.path);
+    const prep = this.prepareEdit(a.path, a.expectSha256, (orig, exists) => {
+      const r = applyUnifiedDiff(orig, a.patch, exists);
+      return r.ok ? { ok: true, result: r.result } : r;
+    });
+    return this.commitEdit('applyPatch', a.path, prep);
+  }
+
+  private async editFile(a: z.infer<typeof EditArgs>) {
+    await this.readGate(a.path);
+    const prep = this.prepareEdit(a.path, a.expectSha256, (orig, exists) => {
+      if (!exists) return { ok: false, error: 'file does not exist (use writeFile to create files)' };
+      const r = editByFind(orig, a.find, a.replace, a.expectCount);
+      return r.ok ? { ok: true, result: r.result } : r;
+    });
+    return this.commitEdit('editFile', a.path, prep);
+  }
+
+  private async fetchUrl(a: z.infer<typeof FetchArgs>) {
     const net = this.gov.policy.net;
-    let url = startUrl;
+    let url = a.url;
     for (let hop = 0; hop <= net.maxRedirects; hop++) {
       const u = parseHttpUrl(url);
       const action: Action = { class: 'net.egress', target: u.hostname, host: u.hostname, summary: `HTTP GET ${u.origin}${u.pathname}`, detail: u.toString() };
@@ -182,9 +334,60 @@ export class Broker {
         url = res.redirectTo;
         continue;
       }
-      return { status: res.status, url: u.toString(), contentType: res.headers['content-type'] ?? '', body: res.body, truncated: res.truncated };
+      const contentType = res.headers['content-type'] ?? '';
+      if (a.format === 'raw') return { status: res.status, url: u.toString(), contentType, body: res.body, truncated: res.truncated };
+      return this.readable(res, u.toString(), contentType, a);
     }
     throw new Error(`too many redirects (> ${net.maxRedirects})`);
+  }
+
+  /**
+   * format:"text": decide what the body really is by looking at it (a Content-Type header is just an untrusted claim),
+   * refuse compressed/binary bodies, and return bounded readable text plus a bounded list of links. We never
+   * decompress anything, so a compression bomb cannot expand in our memory.
+   */
+  private readable(res: { status: number; headers: Record<string, string>; body: string; truncated: boolean }, url: string, contentType: string, a: { maxChars: number; maxLinks: number }) {
+    const enc = (res.headers['content-encoding'] ?? 'identity').toLowerCase();
+    const base = { status: res.status, url, contentType, format: 'text' as const, wireTruncated: res.truncated };
+    if (enc !== 'identity' && enc !== '') return { ...base, detected: 'compressed', text: '', title: '', links: [], truncated: false, note: `response is Content-Encoding: ${enc.slice(0, 20)}; StarClaw does not decompress, so no text was extracted` };
+    if (looksBinary(res.body)) return { ...base, detected: 'binary', text: '', title: '', links: [], truncated: false, note: 'body looks binary (Content-Type is only a claim); no text was extracted' };
+    const claimsJson = /json/i.test(contentType);
+    if (looksLikeHtml(res.body)) {
+      const r = extractReadable(res.body, { maxChars: a.maxChars, maxLinks: a.maxLinks, baseUrl: url });
+      return { ...base, detected: 'html', title: r.title, text: r.text, links: r.links, truncated: r.truncated || res.truncated, invisibleCharsRemoved: r.invisibleCharsRemoved, note: claimsJson ? 'Content-Type said JSON but the body is HTML' : undefined };
+    }
+    const text = res.body.slice(0, a.maxChars);
+    return { ...base, detected: claimsJson ? 'json-or-text' : 'text', title: '', text, links: [], truncated: res.body.length > a.maxChars || res.truncated };
+  }
+
+  private searchProvider?: SearchProvider | null;
+  private getSearchProvider(): SearchProvider {
+    if (this.searchProvider === undefined) this.searchProvider = this.o._testSearchProvider ?? createSearchProvider(this.gov.policy.search) ?? null;
+    if (!this.searchProvider) throw new Error('web search is disabled: set search.provider to "searxng" or "brave" in the policy');
+    return this.searchProvider;
+  }
+
+  /**
+   * Web search through the configured provider. It is a net.egress to the provider host (the full URL, including the
+   * query text, is what the approver sees; API keys are headers and are never shown or logged). The results are
+   * untrusted text from the internet: the session is tainted as soon as the provider answers.
+   */
+  private async search(a: z.infer<typeof SearchArgs>) {
+    const provider = this.getSearchProvider();
+    const cfg = this.gov.policy.search;
+    const net = this.gov.policy.net;
+    const limit = Math.min(a.limit ?? cfg.maxResults, cfg.maxResults);
+    const req = provider.request(a.query, limit);
+    const u = parseHttpUrl(req.url);
+    const action: Action = { class: 'net.egress', target: u.hostname, host: u.hostname, summary: `Web search via ${provider.name}: "${a.query.slice(0, 120)}"`, detail: u.toString() };
+    const allowPrivate = net.allowPrivateAddresses || (provider.selfHosted && cfg.allowPrivateProvider);
+    const res = await this.gov.governed(action, () => safeGet(u.toString(), { allowPrivateAddresses: allowPrivate, maxBytes: net.maxResponseBytes, timeoutMs: net.timeoutSeconds * 1000, headers: req.headers }), (r) => ({ status: r.status, bytes: r.body.length, provider: provider.name }));
+    // Whatever the provider sent back is untrusted, even if it turns out to be an error page.
+    this.gov.taint.mark('web', `search:${provider.name}:${a.query.slice(0, 200)}`);
+    if (res.redirectTo) throw new Error('search provider answered with a redirect; refusing to follow it');
+    if (res.status !== 200) throw new Error(`search provider returned HTTP ${res.status}`);
+    const results = provider.parse(res.body, limit);
+    return { provider: provider.name, query: a.query, untrusted: true, results };
   }
 
   private async runCommand(a: { file: string; args: string[] }) {
