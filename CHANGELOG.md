@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0-alpha.4 (unreleased)
+
+### Added
+* Governed browser tools for the MnemoPay Native Browser control API (`mnemopay-control/v1`): `tools.browseOpen/browseNavigate/browseReadText/browseReadLinks/browseClose`. Off by default. Policy block `browser` (`enabled`, `allowedDomains` required non-empty, `maxActions`, `budgetCents`, `ttlSeconds`, read caps), strict schema.
+* Action classes `browser.open` (a human ALWAYS decides, whatever the policy says; never auto in unattended runs), `browser.navigate` (escalates to a human once the session is tainted) and `browser.read`.
+* Every page-derived result is untrusted and taints the session like `fetchUrl`/`search`. The control token lives only in the host-side client; discovery file is read by the broker and is a hard-denied path for the file tools; token never reaches audit records, approver requests, prompts or errors. Allow-list, loopback and port checks run before any request; content is withheld if the tab ends on a host outside the list.
+* `starclaw doctor` prints a Browser line (policy state, discovery file, control API health).
+* Tests against a local fake of the control API. NOT verified against the real browser.
+
 ## 2.0.0-alpha.3 (unreleased)
 
 ### Added

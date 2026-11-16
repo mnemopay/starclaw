@@ -37,6 +37,8 @@ export interface EngineOptions {
   notifier?: OwnerNotifier;
   /** Injection point for tests. By default a ShellRunner over the workspace (a container only starts when tools.shell runs). */
   shell?: ShellRunner;
+  /** Host-side path of the browser control.json (tests; default is the OS location). */
+  browserDiscoveryPath?: string;
   /** Injection points for tests. */
   signer?: Signer;
   sandbox?: Sandbox;
@@ -102,6 +104,7 @@ export class StarClawEngine {
   readonly jobs: JobStore;
   readonly shell: ShellRunner;
   private notifier?: OwnerNotifier;
+  private readonly browserDiscoveryPath?: string;
   private readonly notifyLimiter: NotifyLimiter;
   private readonly taintedFiles: TaintedFileStore;
   private readonly spendAuthority: SpendAuthority;
@@ -129,6 +132,7 @@ export class StarClawEngine {
     this.rail = o.rail ?? new NoPaymentRail();
     this.approver = o.approver;
     this.notifier = o.notifier;
+    this.browserDiscoveryPath = o.browserDiscoveryPath;
     this.governor = new Governor({ policy: this.policy, audit: this.audit, taint, approver: o.approver, spendAuthority: this.spendAuthority, rail: this.rail });
     this.memory = new CognitiveMemory(path.join(this.stateDir, 'memory.db'), signer, {
       onQuarantine: (q) => this.audit.append('memory.quarantine', q),
@@ -176,6 +180,7 @@ export class StarClawEngine {
       notifier: this.notifier,
       notifyLimiter: this.notifyLimiter,
       jobs: this.jobs,
+      browserDiscoveryPath: this.browserDiscoveryPath,
     });
   }
 
