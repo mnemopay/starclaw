@@ -47,9 +47,13 @@ Other front ends (both fail closed without credentials):
 ## See it work (2 minutes, offline)
 
 ```bash
-git clone https://github.com/mnemopay/starclaw && cd starclaw && npm install
-npm run demo            # no API key, no network, no real money
+git clone https://github.com/mnemopay/starclaw && cd starclaw && npm install && npm run build
+node dist/cli.js sandbox build    # needs Docker; builds the container image from YOUR copy of the runner
+npm run demo                      # no API key, no network, no real money
 ```
+
+Without Docker (or without the image) the demo still runs, on the Node-permission-model layer only; the first
+lines of its output say which layer is active and why.
 
 A scripted model plays an agent that obeys instructions hidden in a web page. You watch StarClaw stop it from
 leaking data and from paying an attacker (even though the owner's policy *allows* web access and spending),
