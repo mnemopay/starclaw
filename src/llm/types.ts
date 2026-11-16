@@ -10,6 +10,8 @@ export interface LlmResult<T> {
   usage: LlmUsage;
   /** Price table used to cost this call (cents per million tokens). */
   price: { inputCentsPerMTok: number; outputCentsPerMTok: number };
+  /** True when no price was configured for this model and a conservative placeholder was used. */
+  priceAssumed?: boolean;
 }
 
 export type Intent = 'conversation' | 'task';

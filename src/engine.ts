@@ -149,7 +149,7 @@ export class StarClawEngine {
     const r = await fn();
     const micro = costMicrocents(r.usage, r.price);
     this.budget.record(micro);
-    this.audit.append('llm.usage', { what, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, microcents: micro, runCentsCeil: this.budget.runCentsCeil, dayCentsCeil: this.budget.dayCentsCeil });
+    this.audit.append('llm.usage', { what, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, microcents: micro, priceAssumed: r.priceAssumed ?? false, runCentsCeil: this.budget.runCentsCeil, dayCentsCeil: this.budget.dayCentsCeil });
     return r.value;
   }
 
