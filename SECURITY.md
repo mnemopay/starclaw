@@ -80,6 +80,64 @@ the `starclaw-sbx-` name prefix.
 container. A container escape is not covered. `sandbox.containerRuntime` can pass an OCI runtime such as `runsc`.
 That path is untested. The container does not protect `.starclaw/audit.key` on the host.
 
+### 1b. Shell container (`src/shell`, `tools.shell`)
+`tools.shell({ command })` runs `sh -c <command>` in a throwaway container from the `starclaw-shell` image (`starclaw shell build`).
+Container flags: no network (there is no policy switch to open it), read-only root, all capabilities dropped,
+`no-new-privileges`, default seccomp, uid 65534, memory/pids/cpu caps, `noexec` tmpfs, no env passthrough, no docker
+socket, no published ports, no mounts. The container destroys itself after `timeout + 60 s` even if the host dies. One
+container exists at a time; `starclaw shell clean` removes only containers labelled `starclaw.shell=1` named `starclaw-sh-*`.
+
+**Why the workspace is copied, not bind-mounted.** Experiment (`tests/shell-container.test.ts`, Windows 11, Docker Desktop
+with the WSL2 backend, 2026-11-16):
+* A host junction or symlink inside a bind-mounted workspace is exposed to the container as a symlink whose target is a
+  translated `/mnt/host/c/...` path. That path does not exist in the container, so the link could not be followed and no
+  file outside the workspace was read. **This escape was NOT demonstrated here.** It was tested on one Docker backend only.
+  Hyper-V/gRPC-FUSE backends, native Linux Docker and other Docker versions were not tested, so it is not ruled out elsewhere.
+* The bind mount is unsafe anyway, and this was demonstrated: the container (root in the experiment) wrote `.env` and
+  `.git/*` straight into the host workspace, bypassing the broker's hard rules, and created a symlink that appeared in
+  the host directory (a WSL-style reparse point that Node cannot even `lstat`: `EACCES`).
+
+So the design copies instead. **Copy-in:** the workspace is read by the host (never following links; symlinks, junctions,
+`.env*`, the state directory and anything `lstat` cannot classify are skipped and reported; caps on files/bytes fail
+closed) and streamed as a tar into the container's size-capped tmpfs `/work`. **Copy-out:** after the command, `/work` is
+read back as a tar, parsed defensively (checksums, size caps, only plain files/directories; links, devices, fifos, pax size
+overrides and malformed headers are refused), turned into an explicit change list, **audited as `shell.writeback.plan`
+before anything is applied**, then applied through the broker's write-path hard rules plus: every existing parent must be a
+real directory (no link), a file changed on the host while the command ran is a *conflict* and is not overwritten,
+Windows-unsafe names (reserved devices, ADS colons, trailing dots/spaces, 8.3 names, case collisions) are refused, caps on
+changed/deleted paths, write to temp + rename. A timed-out or killed command writes nothing back. Output and every written
+file are tainted (later reads taint the session). Policy class `shell.exec` defaults to `ask`.
+
+*Limits:* the command can read every file that was copied in (everything except `.env*`, links and the state directory)
+and print it to the model; it cannot send it anywhere. A background process the command leaves behind may still change
+`/work` while it is read back; the result is validated, not trusted. Containers share the kernel (see 1a). Only the above
+backend was tested. `apt` packages in the image float at build time.
+
+### 1c. Unattended runs (`src/scheduler`)
+Jobs live in `.starclaw/scheduler.json` and run only while `starclaw daemon` (or `starclaw-telegram`) is running. Each run
+has its own Governor with origin `scheduled`: its own taint (so it cannot taint or loosen an owner conversation) and a
+wall-clock deadline after which every governed action and LLM call is refused. Rules, none relaxable by policy:
+a scheduled run can never use `host.exec` or `schedule.create`; a policy `allow` for `spend` is turned into an ask; an `ask`
+is **denied at once** unless `scheduled.defaultVerdictForAsk` is `ask-async` AND the approver reaches the owner away from
+the terminal (`async`: Telegram). The request then carries the job id and trigger time, expires at
+`scheduled.approvalTimeoutSeconds` (capped by the run deadline), and a restart drops pending approvals (late taps get
+"no longer pending"): **unapproved means denied**. Limits: runs/day, runs/job/day, LLM cents/day, jobs total, minimum
+interval, max run seconds, auto-pause after N consecutive failures with exponential backoff; missed runs are coalesced.
+An agent-created job (`tools.scheduleCreate`, class `schedule.create`) is **always** asked, whatever the policy says; a
+job proposed from a tainted session starts every run tainted. Jobs you add with `starclaw schedule add` are yours and
+are audited (`scheduler.job.created`).
+
+### 1d. Messaging you first (`tools.notifyOwner`)
+Messages go only to the configured owner chat; there is no recipient parameter. They are length-capped, rate-limited
+(`notify.maxPerHour/maxPerDay`, persisted so a restart does not reset them), governed as `notify.owner` (allowed by
+default for a clean session; a tainted session must ask, because a message to you is a phishing/exfiltration channel) and
+audited before the send. StarClaw's own notices (e.g. "job paused") use the same limits.
+
+### 1e. Legacy host commands (`tools.runCommand`, class `host.exec`)
+Still unsandboxed. It is now its own action class, never covered by a rule written for sandboxed `exec`, denied in every
+unattended run, and **denied whenever no approver is present (non-interactive), even if a policy rule says `allow`.**
+Prefer `tools.shell`.
+
 ### 2. Governor and approvals (`src/governance`)
 Every brokered capability is an `Action`; policy returns allow/ask/deny; deny-overrides. Decisions are appended
 to the audit log **before** the action runs; results after. No approver configured means every `ask` is a
@@ -153,7 +211,7 @@ refuses to start without a numeric owner id; callbacks are accepted only from th
 ## Residual risks, plainly
 1. Prompt injection works against the model; StarClaw only gates what it can do. A human who approves is the last line.
 2. The process layer is a seat belt. With the container layer active, a Node permission-model bypass stays inside that container. A container or kernel escape is not covered, and containers on Docker Desktop share the WSL2 kernel. Without Docker, a Node bypass would give generated code the user's rights.
-3. Approved host commands are unsandboxed.
+3. Approved host commands (`host.exec`) are unsandboxed; prefer `tools.shell`.
 4. Key and state files are only as safe as your account; log/memory forgery needs only read access to the key.
 5. Only one OS/Node combination was tested; no external review or fuzzing was done.
 

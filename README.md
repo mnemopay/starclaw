@@ -5,7 +5,7 @@ runs that code in an isolated sandbox (a locked-down Docker container, with Node
 engine** that can allow, ask a human, or deny, and that writes a **signed, hash-chained audit record before
 anything runs**.
 
-> **Status: `2.0.0-alpha.2`. Not published, not yet recommended for customers.** See [Known limits](#known-limits)
+> **Status: `2.0.0-alpha.3`. Not published, not yet recommended for customers.** See [Known limits](#known-limits)
 > and [SECURITY.md](SECURITY.md) first. Tested on Windows 11 x64 with Node 25.9.0 only.
 
 StarClaw does **not** prevent prompt injection. It assumes the model *will* sometimes be steered by hostile
@@ -17,7 +17,7 @@ the untrusted content came from, and everything is provable afterwards.
 Requires **Node.js >= 25.9.0** (see [why](#why-node-259)).
 
 ```bash
-npm install starclaw          # once published; until then: npm install ./starclaw-2.0.0-alpha.2.tgz
+npm install starclaw          # once published; until then: npm install ./starclaw-2.0.0-alpha.3.tgz
 export GROQ_API_KEY=...        # the bundled LLM backend is Groq; the LLM is an interface, bring your own
 npx starclaw sandbox build    # optional but recommended: builds the Docker sandbox image (needs Docker)
 npx starclaw doctor           # probes every isolation layer and prints what is blocked, which layer is ACTIVE and why

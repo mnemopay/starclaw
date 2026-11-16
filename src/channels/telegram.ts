@@ -37,6 +37,8 @@ const CB_PREFIX = 'sc';
  */
 export class TelegramApprover implements Approver {
   readonly name = 'telegram';
+  /** Reaches the owner away from the terminal: scheduled (unattended) runs may use it for approvals. */
+  readonly async = true;
   private pending = new Map<string, { resolve: (a: ApprovalAnswer) => void; chatId: number; messageId?: number }>();
 
   constructor(private readonly api: TelegramApi, private readonly ownerId: number) {
@@ -55,6 +57,7 @@ export class TelegramApprover implements Approver {
         ]],
       },
     });
+    if (signal.aborted) return 'deny'; // expired while the message was being sent
     return new Promise<ApprovalAnswer>((resolve) => {
       const entry = { resolve, chatId: this.ownerId, messageId: sent?.message_id as number | undefined };
       this.pending.set(req.id, entry);

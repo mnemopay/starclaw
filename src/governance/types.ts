@@ -10,6 +10,14 @@ export const ACTION_CLASSES = [
   'spend',
   'skill.save',
   'memory.write',
+  /** Command inside the locked-down shell container (workspace copied in, changes copied back). */
+  'shell.exec',
+  /** LEGACY: command run directly on the host, unsandboxed (tools.runCommand). */
+  'host.exec',
+  /** An agent asking to create a scheduled job. Never auto-allowed. */
+  'schedule.create',
+  /** A proactive message to the configured owner. */
+  'notify.owner',
 ] as const;
 export type ActionClass = (typeof ACTION_CLASSES)[number];
 
@@ -19,7 +27,20 @@ export const TAINT_SENSITIVE: ReadonlySet<ActionClass> = new Set<ActionClass>([
   'net.egress',
   'spend',
   'skill.save',
+  'shell.exec',
+  'host.exec',
+  'schedule.create',
+  'notify.owner',
 ]);
+
+/** Action classes that policy can never auto-allow, tainted or not: a human always decides (or the action is denied). */
+export const ALWAYS_ASK: ReadonlySet<ActionClass> = new Set<ActionClass>(['schedule.create']);
+
+/** Action classes that a scheduled (unattended) run can never have auto-allowed by a policy `allow`. */
+export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create']);
+
+/** Action classes that are refused outright for runs with origin `scheduled`, whatever the policy says. */
+export const DENIED_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create']);
 
 export type Verdict = 'allow' | 'ask' | 'deny';
 
@@ -39,7 +60,7 @@ export interface Action {
   host?: string;
 }
 
-export type TaintKind = 'web' | 'non-owner-message' | 'tool-output' | 'tainted-memory' | 'tainted-file';
+export type TaintKind = 'web' | 'non-owner-message' | 'tool-output' | 'tainted-memory' | 'tainted-file' | 'scheduled-job';
 
 export interface TaintSource {
   kind: TaintKind;
@@ -56,7 +77,7 @@ export interface Decision {
   id: string;
   allowed: boolean;
   /** Who/what made the final call. */
-  by: 'policy' | 'human' | 'default-deny' | 'hard-rule' | 'spend-authority' | 'no-approver' | 'timeout' | 'approver-error';
+  by: 'policy' | 'scheduled-policy' | 'human' | 'default-deny' | 'hard-rule' | 'spend-authority' | 'no-approver' | 'timeout' | 'approver-error';
   reason: string;
   escalatedByTaint: boolean;
   provenance: Provenance;
@@ -78,6 +99,8 @@ export interface ApprovalRequest {
   escalatedByTaint: boolean;
   /** Epoch ms after which the request is auto-denied. */
   expiresAt: number;
+  /** Set for unattended runs: the job and trigger time the request belongs to. */
+  scheduled?: { jobId: string; triggerAt: string };
 }
 
 export type ApprovalAnswer = 'approve' | 'deny';
@@ -85,6 +108,8 @@ export type ApprovalAnswer = 'approve' | 'deny';
 /** An approver shows the exact request to a human and returns their answer. */
 export interface Approver {
   readonly name: string;
+  /** True only for approvers that reach a human who is NOT sitting at the terminal (e.g. Telegram). Scheduled runs use only these. */
+  readonly async?: boolean;
   /** Must resolve; anything other than 'approve' is treated as deny. */
   request(req: ApprovalRequest, signal: AbortSignal): Promise<ApprovalAnswer>;
 }
@@ -97,6 +122,7 @@ export function describeRequest(req: ApprovalRequest): string {
   lines.push(`Action : ${a.class}`);
   lines.push(`Target : ${a.target}`);
   lines.push(`Summary: ${a.summary}`);
+  if (req.scheduled) lines.push(`Origin : SCHEDULED job ${req.scheduled.jobId}, triggered ${req.scheduled.triggerAt} (nobody is at the terminal)`);
   if (a.cents !== undefined) lines.push(`Cost   : ${a.cents} cents (${(a.cents / 100).toFixed(2)} in the rail's currency unit)`);
   if (req.provenance.tainted) {
     lines.push(`Provenance: TAINTED - untrusted content is in this session's context`);

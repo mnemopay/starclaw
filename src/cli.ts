@@ -11,6 +11,8 @@ import { SelectingSandbox } from './sandbox/select';
 import type { Sandbox } from './sandbox/types';
 import { buildImage, cleanContainers, defaultImageTag, imageStatus, listSandboxContainers } from './sandbox/dockerImage';
 import { StarClawEngine } from './engine';
+import { runDaemon } from './daemon';
+import { buildShellImage, cleanShellContainers, defaultShellImageTag, listShellContainers, shellImageStatus } from './shell/shellImage';
 
 const VERSION: string = (() => {
   try {
@@ -253,6 +255,107 @@ sandboxCmd
   .action(async () => {
     const removed = await cleanContainers();
     console.log(removed.length ? `removed: ${removed.join(', ')}` : 'nothing to remove');
+  });
+
+// ---- shell container ---------------------------------------------------------------------------------------------
+
+const shellCmd = program.command('shell').description('manage the governed shell container (tools.shell)');
+shellCmd
+  .command('build')
+  .description('build the shell image from the packaged Dockerfile (the build may use the network; the running container never does)')
+  .option('--tag <tag>', 'image tag (default starclaw-shell:<version>)')
+  .action(async (o: { tag?: string }) => {
+    try {
+      const tag = o.tag ?? defaultShellImageTag();
+      console.log(`building ${tag} ...`);
+      const code = await buildShellImage({ tag, onLog: (s) => process.stdout.write(s) });
+      console.log(code === 0 ? `built ${tag}` : `docker build failed (exit ${code})`);
+      process.exit(code);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+shellCmd
+  .command('status')
+  .description('show Docker availability, shell image state and shell containers')
+  .option('--tag <tag>', 'image tag')
+  .action(async (o: { tag?: string }) => {
+    const st = await shellImageStatus({ tag: o.tag });
+    console.log(`docker: ${st.dockerOk ? 'available' : 'NOT available'}`);
+    console.log(`image ${st.tag}: ${st.imagePresent ? 'present' : 'missing'}; ${st.detail}`);
+    const running = st.dockerOk ? await listShellContainers() : [];
+    console.log(`shell containers on this host (label starclaw.shell=1): ${running.length}${running.length ? ' -> ' + running.join(', ') : ''}`);
+    process.exit(st.dockerOk && st.imagePresent && st.matches ? 0 : 1);
+  });
+shellCmd
+  .command('clean')
+  .description('remove shell containers (only those labelled starclaw.shell=1 whose names start with starclaw-sh-)')
+  .action(async () => {
+    const removed = await cleanShellContainers();
+    console.log(removed.length ? `removed: ${removed.join(', ')}` : 'nothing to remove');
+  });
+
+// ---- scheduler ------------------------------------------------------------------------------------------------------
+
+const noLlm = { llm: { classifyIntent: async () => { throw new Error('no model in this command'); } } as any };
+const withJobs = (o: CommonCliOptions, fn: (engine: StarClawEngine) => void | Promise<void>) => async () => {
+  try {
+    await fn(createEngine(o, undefined, noLlm));
+  } catch (e) {
+    fatal(e);
+  }
+};
+const scheduleCmd = program.command('schedule').description('manage unattended jobs (they only run while `starclaw daemon` is running)');
+common(scheduleCmd.command('add <name> <schedule> <goal>'))
+  .description('add a job: <schedule> is a 5-field cron expression or "@every 30m". YOU are creating it, so no approval prompt; it is audited.')
+  .option('--heartbeat', 'heartbeat job: the agent messages you ONLY if something needs attention')
+  .option('--notify <mode>', 'agent | summary | never (default: agent for heartbeats, summary otherwise)')
+  .action((name: string, schedule: string, goal: string, o: CommonCliOptions & { heartbeat?: boolean; notify?: string }) =>
+    withJobs(o, (engine) => {
+      if (o.notify !== undefined && !['agent', 'summary', 'never'].includes(o.notify)) throw new Error('--notify must be agent, summary or never');
+      const job = engine.jobs.add({ name, schedule, goal, kind: o.heartbeat ? 'heartbeat' : 'goal', notify: o.notify as any, createdBy: 'owner-cli' });
+      engine.audit.append('scheduler.job.created', { jobId: job.id, name: job.name, kind: job.kind, schedule: job.schedule, createdBy: job.createdBy, createdTainted: false });
+      console.log(`created ${job.id}; next run ${job.nextRunAt ? new Date(job.nextRunAt).toISOString() : 'never'}`);
+    })(),
+  );
+common(scheduleCmd.command('list')).description('list jobs').action((o: CommonCliOptions) =>
+  withJobs(o, (engine) => {
+    const jobs = engine.jobs.list();
+    if (!jobs.length) return console.log('no jobs');
+    for (const j of jobs) console.log(`${j.id}  ${j.paused ? 'PAUSED' : 'active'}  ${j.kind}  "${j.schedule}"  ${j.name}  next=${j.nextRunAt ? new Date(j.nextRunAt).toISOString() : '-'}  last=${j.lastStatus ?? '-'}${j.pausedReason ? '  (' + j.pausedReason + ')' : ''}`);
+  })(),
+);
+common(scheduleCmd.command('remove <id>')).description('delete a job').action((id: string, o: CommonCliOptions) =>
+  withJobs(o, (engine) => {
+    engine.audit.append('scheduler.job.removed', { jobId: id, by: 'owner-cli' });
+    console.log(engine.jobs.remove(id) ? 'removed' : 'no such job');
+  })(),
+);
+common(scheduleCmd.command('pause <id>')).description('pause a job').action((id: string, o: CommonCliOptions) =>
+  withJobs(o, (engine) => {
+    engine.audit.append('scheduler.job.paused', { jobId: id, reason: 'owner-cli' });
+    console.log(engine.jobs.update(id, { paused: true, pausedReason: 'paused by owner' }) ? 'paused' : 'no such job');
+  })(),
+);
+common(scheduleCmd.command('resume <id>')).description('resume a paused job (clears its failure count)').action((id: string, o: CommonCliOptions) =>
+  withJobs(o, (engine) => {
+    engine.audit.append('scheduler.job.resumed', { jobId: id, by: 'owner-cli' });
+    console.log(engine.jobs.update(id, { paused: false, pausedReason: undefined, consecutiveFailures: 0 }) ? 'resumed' : 'no such job');
+  })(),
+);
+
+common(program.command('daemon'))
+  .description('long-running process: Telegram gateway (goals + async approvals) and the scheduler. Needs TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_ID.')
+  .option('--no-telegram', 'run without Telegram: jobs run but every approval is denied and nothing can message you')
+  .action(async (o: CommonCliOptions & { telegram?: boolean }) => {
+    try {
+      const d = await runDaemon({ ...o, noTelegram: o.telegram === false });
+      const stop = () => { d.stop(); process.exit(0); };
+      process.on('SIGINT', stop);
+      process.on('SIGTERM', stop);
+    } catch (e) {
+      fatal(e);
+    }
   });
 
 program.parseAsync(process.argv).catch(fatal);

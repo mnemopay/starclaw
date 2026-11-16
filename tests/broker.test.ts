@@ -162,7 +162,7 @@ describe('broker', () => {
     const r: any = await broker.handle({ name: 'runCommand', args: { file: process.execPath, args: ['-e', 'console.log("hi && echo injected")'] } });
     assert.equal(r.code, 0);
     assert.equal(r.stdout.trim(), 'hi && echo injected');
-    assert.equal(approver.seen[0].action.class, 'exec');
+    assert.equal(approver.seen[0].action.class, 'host.exec');
     assert.equal(taint.tainted, true);
     approver = new ScriptedApprover(() => 'deny');
     const { broker: b2 } = mk();
