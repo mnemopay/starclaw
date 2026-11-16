@@ -21,7 +21,9 @@ export function rm(dir: string) {
 
 /** Build a policy from partial JSON through the real parser. */
 export function policyWith(overrides: Record<string, unknown> = {}): Policy {
-  return parsePolicy(JSON.stringify({ version: 1, ...overrides }));
+  // Tests default to the process layer so they are deterministic and fast; container tests opt in explicitly.
+  const sandbox = { mode: 'process', ...((overrides.sandbox as object) ?? {}) };
+  return parsePolicy(JSON.stringify({ version: 1, ...overrides, sandbox }));
 }
 
 /** Approver driven by a function; records every request it was shown. */

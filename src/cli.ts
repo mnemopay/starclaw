@@ -2,11 +2,13 @@
 import * as fs from 'node:fs';
 import * as readline from 'node:readline';
 import { Command } from 'commander';
-import { createEngine, CommonCliOptions } from './bootstrap';
+import { applySandboxFlags, createEngine, CommonCliOptions } from './bootstrap';
 import { CliApprover } from './governance/approvers';
 import { verifyAuditFile } from './governance/audit';
 import { defaultPolicy, loadPolicy } from './governance/policy';
-import { ProcessSandbox } from './sandbox/ProcessSandbox';
+import { SelectingSandbox } from './sandbox/select';
+import type { Sandbox } from './sandbox/types';
+import { buildImage, cleanContainers, defaultImageTag, imageStatus, listSandboxContainers } from './sandbox/dockerImage';
 import { StarClawEngine } from './engine';
 
 const VERSION: string = (() => {
@@ -28,7 +30,9 @@ const common = (c: Command) =>
     .option('--policy <file>', 'policy JSON file (default: ./starclaw.policy.json if present, else built-in conservative defaults)')
     .option('--state-dir <dir>', 'where keys, audit log and memory live (default ./.starclaw)')
     .option('--workspace <dir>', 'workspace directory the agent may write to (default from policy: ./workspace)')
-    .option('--learn-skills', 'offer to save successful code as reusable skills (each save needs approval)');
+    .option('--learn-skills', 'offer to save successful code as reusable skills (each save needs approval)')
+    .option('--sandbox <mode>', 'isolation layer: auto (default) | container | process')
+    .option('--require-container', 'generated code runs ONLY if the container layer passes its probe');
 
 function fatal(e: any): never {
   console.error(`starclaw: ${e?.message ?? e}`);
@@ -80,7 +84,7 @@ common(program.command('interactive', { isDefault: true }).description('interact
     );
     const engine = createEngine(o, approver);
     const boot = await engine.boot();
-    console.log(`StarClaw ${VERSION} | sandbox probe OK on Node ${boot.sandbox.nodeVersion} (${boot.sandbox.results.length} checks) | memory: ${boot.memory.ok ? 'verified' : 'INTEGRITY PROBLEMS: ' + JSON.stringify(boot.memory.tampered.length + boot.memory.chainErrors.length)}`);
+    console.log(`StarClaw ${VERSION} | sandbox probe OK (${boot.sandbox.results.length} checks); ${engine.sandbox.describe().split('. ')[0]} | memory: ${boot.memory.ok ? 'verified' : 'INTEGRITY PROBLEMS: ' + JSON.stringify(boot.memory.tampered.length + boot.memory.chainErrors.length)}`);
     console.log("Commands: /new (fresh session, clears taint), /status, exit. Every action not auto-allowed by policy asks you first.\n");
     rl.prompt();
     let busy = false;
@@ -153,24 +157,96 @@ policy
     }
   });
 
+function printProbe(title: string, r: { results: Array<{ name: string; denied: boolean; detail: string }>; skipped: string[]; durationMs: number; nodeVersion: string; platform: string }) {
+  console.log(`\n== ${title} (Node ${r.nodeVersion} on ${r.platform}; ${r.results.filter((i) => i.denied).length}/${r.results.length} checks passed in ${r.durationMs} ms)`);
+  for (const i of r.results) console.log(`  [${i.denied ? ' ok ' : 'FAIL'}] ${i.name} -> ${i.detail.replace(/\s+/g, ' ').slice(0, 110)}`);
+  for (const s of r.skipped) console.log(`  [skip] ${s}`);
+}
+
 program
   .command('doctor')
-  .description('run the sandbox probe on this machine and print exactly what is and is not blocked')
+  .description('probe the isolation layers on this machine, print what is and is not blocked, and which layer is active and why')
+  .option('--policy <file>', 'policy JSON file')
   .option('--workspace <dir>', 'workspace dir', 'workspace')
-  .action(async (o: { workspace: string }) => {
-    const sb = new ProcessSandbox({ workspaceDir: o.workspace });
-    let ok = true;
+  .option('--sandbox <mode>', 'auto | container | process (overrides the policy)')
+  .option('--require-container', 'refuse unless the container layer passes its probe')
+  .action(async (o: CommonCliOptions) => {
     try {
-      await sb.ensureSafe();
-    } catch {
-      ok = false;
+      const policy = applySandboxFlags(loadPolicy(o.policy), o);
+      const sb = new SelectingSandbox({
+        mode: policy.sandbox.mode,
+        requireContainer: policy.sandbox.requireContainer,
+        workspaceDir: o.workspace ?? 'workspace',
+        timeoutMs: policy.sandbox.timeoutSeconds * 1000,
+        maxOutputBytes: policy.sandbox.maxOutputBytes,
+        memoryMb: policy.sandbox.memoryMb,
+        maxBrokerCalls: policy.sandbox.maxBrokerCalls,
+        containerImage: policy.sandbox.containerImage,
+        containerPidsLimit: policy.sandbox.containerPidsLimit,
+        containerRuntime: policy.sandbox.containerRuntime,
+      });
+      const layers: Array<['container' | 'process', Sandbox]> = [['container', sb.container], ['process', sb.proc]];
+      for (const [name, layer] of layers) {
+        try {
+          await layer.ensureSafe();
+        } catch {
+          /* reported from lastProbe below */
+        }
+        const r = layer.lastProbe;
+        if (r) printProbe(`${name.toUpperCase()} layer probe: ${r.ok ? 'PASSED' : 'FAILED'}`, r);
+        else console.log(`\n== ${name.toUpperCase()} layer: not probed`);
+      }
+      let ok = true;
+      try {
+        await sb.ensureSafe();
+      } catch (e: any) {
+        ok = false;
+        console.log(`\n${e.message}`);
+      }
+      console.log(`\n${sb.describe()}`);
+      console.log(ok ? 'Generated code MAY run.' : 'Generated code will NOT run: StarClaw refuses to execute it on this machine/configuration.');
+      process.exit(ok ? 0 : 1);
+    } catch (e) {
+      fatal(e);
     }
-    const r = sb.lastProbe!;
-    console.log(`Node ${r.nodeVersion} on ${r.platform}; probe took ${r.durationMs} ms`);
-    for (const i of r.results) console.log(`  [${i.denied ? ' ok ' : 'FAIL'}] ${i.name} -> ${i.detail.replace(/\s+/g, ' ').slice(0, 110)}`);
-    for (const s of r.skipped) console.log(`  [skip] ${s}`);
-    console.log(ok ? '\nSandbox is AVAILABLE: generated code may run.' : '\nSandbox is UNAVAILABLE: StarClaw will refuse to run generated code on this Node build.');
-    process.exit(ok ? 0 : 1);
+  });
+
+const sandboxCmd = program.command('sandbox').description('manage the Docker container layer');
+sandboxCmd
+  .command('build')
+  .description('build the sandbox image from the packaged Dockerfile and runner')
+  .option('--tag <tag>', 'image tag (default starclaw-sandbox:<version>)')
+  .action(async (o: { tag?: string }) => {
+    try {
+      const tag = o.tag ?? defaultImageTag();
+      console.log(`building ${tag} ...`);
+      const code = await buildImage({ tag, onLog: (s) => process.stdout.write(s) });
+      console.log(code === 0 ? `built ${tag}` : `docker build failed (exit ${code})`);
+      process.exit(code);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+sandboxCmd
+  .command('status')
+  .description('show Docker availability, image state and sandbox containers')
+  .option('--tag <tag>', 'image tag')
+  .action(async (o: { tag?: string }) => {
+    const st = await imageStatus({ tag: o.tag });
+    console.log(`docker: ${st.dockerOk ? 'available (server ' + st.dockerVersion + ')' : 'NOT available'}`);
+    console.log(`image ${st.tag}: ${st.imagePresent ? 'present (' + (st.imageId ?? '').slice(0, 19) + ')' : 'missing'}; ${st.detail}`);
+    const running = st.dockerOk ? await listSandboxContainers() : [];
+    console.log(`sandbox containers on this host (label starclaw.sandbox=1): ${running.length}${running.length ? ' -> ' + running.join(', ') : ''}`);
+    const usable = st.dockerOk && st.imagePresent && st.runnerMatches;
+    console.log(`container layer usable: ${usable ? 'yes, subject to the probe that runs before first use (see: starclaw doctor)' : 'no'}`);
+    process.exit(usable ? 0 : 1);
+  });
+sandboxCmd
+  .command('clean')
+  .description('remove sandbox containers (only those labelled starclaw.sandbox=1 with the starclaw-sbx- name prefix)')
+  .action(async () => {
+    const removed = await cleanContainers();
+    console.log(removed.length ? `removed: ${removed.join(', ')}` : 'nothing to remove');
   });
 
 program.parseAsync(process.argv).catch(fatal);

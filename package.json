@@ -1,6 +1,6 @@
 {
   "name": "starclaw",
-  "version": "2.0.0-alpha.0",
+  "version": "2.0.0-alpha.1",
   "description": "A governed autonomous AI agent: every action is policy-checked, approval-gated, spend-capped and written to a tamper-evident audit log.",
   "license": "Apache-2.0",
   "main": "dist/index.js",
@@ -12,10 +12,12 @@
   "files": [
     "dist",
     "public",
+    "docker",
     "README.md",
     "SECURITY.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=25.9.0"
@@ -23,7 +25,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.js",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "test": "node --import tsx --test --test-concurrency=1 \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run clean && npm run build && npm test",
     "cli": "node dist/cli.js",

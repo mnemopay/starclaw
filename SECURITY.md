@@ -1,6 +1,6 @@
 # StarClaw security model
 
-Version `2.0.0-alpha.0`. Everything below states what was exercised by the test suite or by manual runs on
+Version `2.0.0-alpha.1`. Everything below states what was exercised by the test suite or by manual runs on
 **Windows 11 x64, Node 25.9.0** (plus probe runs on Node 24.22.3 and 22.23.5). Anything not exercised is marked
 *unverified*. Report vulnerabilities privately to the maintainer; do not file public issues for exploits.
 
@@ -46,10 +46,39 @@ pre-existing junction, `inspector.open`.
   probe fails closed on anything that does not deny it.
 
 **Limits.** Node documents the permission model as a "seat belt" that "does not provide security guarantees in
-the presence of malicious code". A model that finds a bypass is outside what this protects. There is no
-OS-level isolation (no job object, container, seccomp or AppContainer). CPU can be burned until the timeout.
-Disk can be filled via brokered writes (5 MB each, up to the call cap). Only Windows was tested. For hostile
-workloads run the whole of StarClaw in a container or VM.
+the presence of malicious code". A model that finds a bypass is outside what this layer protects. This layer
+has no OS-level isolation of its own (no job object, seccomp or AppContainer). CPU can be burned until the timeout.
+Disk can be filled via brokered writes (5 MB each, up to the call cap). Only Windows was tested. When Docker is
+available, the container layer below is the outer boundary. Without it, a bypass gives the code the user's rights.
+
+### 1a. Container sandbox (`src/sandbox/ContainerSandbox.ts`)
+
+When `sandbox.mode` is `auto` (the default) and the container probe passes, generated code runs inside `docker run`
+instead of the process layer. Mode `container` requires that image. Mode `process` never starts Docker.
+`--require-container` (or `sandbox.requireContainer`) refuses to run generated code if the container probe fails.
+There is no process fallback in that case.
+
+The default `docker run` is `--rm -i --pull never`, a unique name `starclaw-sbx-*`, label `starclaw.sandbox=1`,
+`--network none`, `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, `--pids-limit`, equal
+`--memory` and `--memory-swap`, `--cpus 1`, `--user 65534:65534`, a `tmpfs` on `/tmp` mounted `noexec,nosuid`,
+`--ipc none`, `--init`, `--log-driver none`, and file-descriptor and core ulimits. No mounts, no environment
+passthrough, no published ports, no docker socket. The workspace is not mounted. Files, network and spend exist
+only as brokered stdio frames. A timeout inside the container is the host timeout plus 10 seconds. On timeout the
+host kills that container by its exact name.
+
+Inside, Node starts with `--permission` and `--allow-fs-read=/sandbox/runner.cjs` only. `process.dlopen` is denied
+by that permission model (`ERR_DLOPEN_DISABLED` or `ERR_ACCESS_DENIED`). The image is `node:25.9-slim` pinned by
+digest. The image label `starclaw.runner.sha256` must match the packaged runner or the probe reports the image stale.
+
+Verified on Windows 11 x64 with Docker Desktop (Linux containers, WSL2) and Node 25.9.0: the startup probe checks
+the live container (uid 65534, zero capabilities, no-new-privileges, seccomp, read-only root, noexec tmpfs, no host
+network, no host files, no docker socket, no host environment, memory and pid limits). Each control that removes
+one flag makes the matching check fail. `starclaw sandbox clean` removes only containers that carry the label and
+the `starclaw-sbx-` name prefix.
+
+**Limits.** Containers share the kernel. On Docker Desktop that kernel is the WSL2 VM's, not a kernel per
+container. A container escape is not covered. `sandbox.containerRuntime` can pass an OCI runtime such as `runsc`.
+That path is untested. The container does not protect `.starclaw/audit.key` on the host.
 
 ### 2. Governor and approvals (`src/governance`)
 Every brokered capability is an `Action`; policy returns allow/ask/deny; deny-overrides. Decisions are appended
@@ -123,7 +152,7 @@ refuses to start without a numeric owner id; callbacks are accepted only from th
 
 ## Residual risks, plainly
 1. Prompt injection works against the model; StarClaw only gates what it can do. A human who approves is the last line.
-2. The sandbox is a seat belt; a Node permission-model bypass would give generated code your user's rights.
+2. The process layer is a seat belt. With the container layer active, a Node permission-model bypass stays inside that container. A container or kernel escape is not covered, and containers on Docker Desktop share the WSL2 kernel. Without Docker, a Node bypass would give generated code the user's rights.
 3. Approved host commands are unsandboxed.
 4. Key and state files are only as safe as your account; log/memory forgery needs only read access to the key.
 5. Only one OS/Node combination was tested; no external review or fuzzing was done.

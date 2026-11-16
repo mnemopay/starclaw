@@ -1,11 +1,11 @@
 # StarClaw
 
 A governed autonomous agent. You give it a goal; a language model writes JavaScript to achieve it; StarClaw
-runs that code in a permission-restricted child process where **every capability is brokered through a policy
+runs that code in an isolated sandbox (a locked-down Docker container, with Node's permission model inside it) where **every capability is brokered through a policy
 engine** that can allow, ask a human, or deny, and that writes a **signed, hash-chained audit record before
 anything runs**.
 
-> **Status: `2.0.0-alpha.0`. Not published, not yet recommended for customers.** See [Known limits](#known-limits)
+> **Status: `2.0.0-alpha.1`. Not published, not yet recommended for customers.** See [Known limits](#known-limits)
 > and [SECURITY.md](SECURITY.md) first. Tested on Windows 11 x64 with Node 25.9.0 only.
 
 StarClaw does **not** prevent prompt injection. It assumes the model *will* sometimes be steered by hostile
@@ -17,9 +17,10 @@ the untrusted content came from, and everything is provable afterwards.
 Requires **Node.js >= 25.9.0** (see [why](#why-node-259)).
 
 ```bash
-npm install starclaw          # once published; until then: npm install ./starclaw-2.0.0-alpha.0.tgz
+npm install starclaw          # once published; until then: npm install ./starclaw-2.0.0-alpha.1.tgz
 export GROQ_API_KEY=...        # the bundled LLM backend is Groq; the LLM is an interface, bring your own
-npx starclaw doctor           # runs the sandbox probe and prints what is / is not blocked on THIS machine
+npx starclaw sandbox build    # optional but recommended: builds the Docker sandbox image (needs Docker)
+npx starclaw doctor           # probes every isolation layer and prints what is blocked, which layer is ACTIVE and why
 ```
 
 ## Quick start
@@ -46,19 +47,27 @@ Other front ends (both fail closed without credentials):
 ## How it works
 
 ```
-goal ──> LLM writes code ──> Governor: exec? ──(ask/allow/deny)──> ProcessSandbox (node --permission, scrubbed env)
-                                                                        │ tools.* calls over IPC
+goal ──> LLM writes code ──> Governor: exec? ──(ask/allow/deny)──> sandbox:  [ Docker container ──> node --permission ]   (or node --permission alone)
+                                                                        │ tools.* calls over a frame protocol (stdio / IPC)
                                       ┌─────────────────────────────────┘
                                       v
                        Broker ──> Governor ──> policy ──> taint check ──> approver ──> audit (before) ──> action ──> audit (after)
 ```
 
-* **Sandbox** (`src/sandbox`): generated code runs in a separate `node --permission` process with no
-  `--allow-*` flags except read access to the runner file. It has no filesystem, network, child-process,
-  worker, addon or WASI access, a scrubbed environment, a memory cap, a wall-clock timeout and an output cap.
-  It can only talk to the parent over IPC, to call `tools.readFile / listDir / writeFile / fetchUrl /
-  runCommand / spend`. **At startup a probe attempts ~40 forbidden operations through the same code path
-  (and checks their side effects independently); if any is not denied, StarClaw refuses to run generated code.**
+* **Layered isolation** (`src/sandbox`), outermost first:
+  1. **Container** (`ContainerSandbox`): `docker run --rm -i --network none --read-only --cap-drop ALL --security-opt
+     no-new-privileges --pids-limit 64 --memory 256m --memory-swap 256m --cpus 1 --user 65534:65534
+     --tmpfs /tmp:rw,noexec,nosuid,size=16m --ipc none --init`, unique name, label `starclaw.sandbox=1`, **no mounts, no
+     env passthrough, no docker socket**. The container cannot see the workspace at all; files, network and spend only
+     exist as brokered calls over a stdio frame protocol (forged frames are harmless: see SECURITY.md).
+  2. **Node permission model** inside the container (and alone when no container is available): no child_process,
+     workers, addons, WASI, network or filesystem, plus JS-level hardening.
+  3. **Governor/broker**: every brokered call is policy-checked, taint-checked, approved and audited.
+  `sandbox.mode` is `auto` (default: container if its probe passes, else process, else refuse), `container` or `process`;
+  `--require-container` (or `sandbox.requireContainer`) means generated code runs **only** if the container probe passes.
+  **At startup each layer is probed by attempting forbidden operations through the same code path and checking the
+  side effects from the host; if the selected layer fails its probe, StarClaw refuses to run generated code.**
+  `starclaw doctor` shows both probes, the active layer and why.
 * **Governor** (`src/governance`): action classes `exec`, `fs.read`, `fs.write`, `net.egress` (per host),
   `spend` (integer cents), `skill.save`, `memory.write`; verdicts `allow | ask | deny`; JSON policy with a
   strict schema (invalid policy = refuse to start). Approvers: terminal, Telegram (owner only), HTTP (bearer
@@ -82,18 +91,23 @@ goal ──> LLM writes code ──> Governor: exec? ──(ask/allow/deny)─�
 
 | Threat | Result |
 |---|---|
-| Generated code spawns processes, loads addons/workers/WASI, opens sockets, reads/writes outside the workspace, signals other processes | Blocked and probe-verified on Node 25.9.0 / Windows (details: `starclaw doctor`) |
+| Generated code spawns processes, loads addons/workers/WASI, opens sockets, reads/writes outside the workspace, signals other processes | Blocked and probe-verified on Node 25.9.0 / Windows, in the process layer and (when available) again by the container layer (details: `starclaw doctor`) |
+| Generated code tries to reach the host (files, network, docker socket, environment, other processes) | Container layer: no mounts, no network, no capabilities, non-root, read-only root, memory/pids caps; probe-verified from the host side on Docker Desktop (WSL2) |
 | Injected text makes the agent exfiltrate, run commands or spend | **Not prevented.** Requires human approval once the session is tainted; the human sees the provenance |
 | You approve something harmful | Nothing stops you. Approved host commands run with your full privileges |
 | Someone edits the audit log or memory without the signing key | Detected |
 | Someone who can read `.starclaw/audit.key` | Can forge both. The key sits next to the data |
-| Malicious code that finds a Node permission-model bypass | **Not covered.** Node documents the model as a "seat belt", not a sandbox for malicious code |
+| Malicious code that finds a Node permission-model bypass | With the container layer: confined by the container instead. Without it: **not covered** (Node documents the model as a "seat belt") |
+| Malicious code that finds a Linux kernel / container-runtime escape | **Not covered.** Containers share the kernel (on Docker Desktop: the WSL2 VM's). For hostile multi-tenant use put gVisor/Kata/Firecracker underneath |
 
 ## Known limits
 
 * Only Windows 11 x64 + Node 25.9.0 was tested. Linux/macOS are untested (the probe will tell you).
-* The sandbox is Node's permission model plus JS-level hardening plus a probe, not a VM or container. For
-  hostile workloads run StarClaw itself inside a container or VM.
+* Containers are not VMs: they share the host kernel (Docker Desktop: the WSL2 VM kernel, not one VM per container).
+  `sandbox.containerRuntime` passes an OCI runtime (e.g. `runsc`) to `docker --runtime`; **that path is untested**.
+* The container does not protect `.starclaw/audit.key` if the host itself is compromised: the key lives on the host.
+* Without Docker, the process layer is Node's permission model plus JS-level hardening plus a probe: a seat belt, not a VM.
+* Docker was only tested on Windows 11 + Docker Desktop (Linux containers, WSL2). Linux and macOS hosts are untested.
 * No payment rail is included. Real money movement is unimplemented and untested.
 * `tools.runCommand` runs approved commands unsandboxed on the host.
 * Memory and audit integrity are only as strong as the secrecy of the key in `.starclaw/`.
@@ -122,4 +136,4 @@ Tests use a fake LLM and fake payment rail: nothing in the suite calls a real pr
 with *controls* that show the test fails when the protection is removed (e.g. sandbox without the permission
 model, memory without verification, a permissive spend authority).
 
-License: Apache-2.0.
+License: Apache-2.0. Copyright (c) 2026 Jeremiah Omiagbo / J&B Enterprise LLC.

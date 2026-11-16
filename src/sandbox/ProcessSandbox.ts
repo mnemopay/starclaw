@@ -3,11 +3,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { probeSandbox, ProbeReport } from './probe';
 
-export interface BrokerCall {
-  name: string;
-  args: unknown;
-}
-export type BrokerHandler = (call: BrokerCall) => Promise<unknown>;
+import { BrokerHandler, DEFAULT_TOOL_NAMES, RunResult, Sandbox, SandboxUnavailable } from './types';
+export type { BrokerCall, BrokerHandler, RunResult, Sandbox } from './types';
+export { DEFAULT_TOOL_NAMES, SandboxUnavailable } from './types';
 
 export interface SandboxOptions {
   workspaceDir: string;
@@ -32,30 +30,6 @@ export interface SandboxOptions {
   _unsafeDirectWorkspaceAccess?: boolean;
 }
 
-export interface RunResult {
-  ok: boolean;
-  value?: unknown;
-  error?: string;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-  outputTruncated: boolean;
-  brokerCalls: number;
-  durationMs: number;
-}
-
-export class SandboxUnavailable extends Error {
-  constructor(msg: string, public readonly report?: ProbeReport) {
-    super(msg);
-    this.name = 'SandboxUnavailable';
-  }
-}
-
-/**
- * Tool names the runner may expose. Kept here so the broker and the sandbox agree.
- */
-export const DEFAULT_TOOL_NAMES = ['readFile', 'writeFile', 'listDir', 'fetchUrl', 'runCommand', 'spend'];
-
 /**
  * Runs generated JavaScript in a separate Node process started with `--permission` (no child_process, worker
  * threads, addons, WASI, network or filesystem access beyond what is explicitly granted), a scrubbed environment,
@@ -64,7 +38,8 @@ export const DEFAULT_TOOL_NAMES = ['readFile', 'writeFile', 'listDir', 'fetchUrl
  * It FAILS CLOSED: `ensureSafe()` runs a probe of forbidden operations through the very same code path and
  * throws SandboxUnavailable if any of them is not denied by this Node build. `run()` calls it first.
  */
-export class ProcessSandbox {
+export class ProcessSandbox implements Sandbox {
+  readonly kind = 'process' as const;
   private probeReport?: ProbeReport;
   private probing?: Promise<ProbeReport>;
   readonly workspaceDir: string;
@@ -75,6 +50,10 @@ export class ProcessSandbox {
     this.workspaceDir = fs.realpathSync(opts.workspaceDir);
     this.runnerPath = path.resolve(opts.runnerPath ?? path.join(__dirname, 'runner.cjs'));
     if (!fs.existsSync(this.runnerPath)) throw new SandboxUnavailable(`sandbox runner missing: ${this.runnerPath}`);
+  }
+
+  describe(): string {
+    return 'process: Node permission model (no OS-level isolation)';
   }
 
   get lastProbe(): ProbeReport | undefined {

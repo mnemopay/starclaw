@@ -67,9 +67,18 @@ export const PolicySchema = z
         maxOutputBytes: z.number().int().min(1024).max(10_000_000).default(256_000),
         memoryMb: z.number().int().min(32).max(4096).default(256),
         maxBrokerCalls: z.number().int().min(1).max(10_000).default(200),
+        /** container = Docker layer required; process = Node permission model only; auto = container if its probe passes, else process, else refuse. */
+        mode: z.enum(['auto', 'container', 'process']).default('auto'),
+        /** If true, anything but a passing container probe means generated code does NOT run (overrides mode). */
+        requireContainer: z.boolean().default(false),
+        /** Docker image built by `starclaw sandbox build`. Default: starclaw-sandbox:<package version>. */
+        containerImage: z.string().regex(/^[a-z0-9][a-z0-9._/:@-]{0,200}$/).optional(),
+        containerPidsLimit: z.number().int().min(8).max(512).default(64),
+        /** Optional OCI runtime passthrough, e.g. "runsc" (gVisor). Passed to docker --runtime; NOT tested by this project. */
+        containerRuntime: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,40}$/).optional(),
       })
       .strict()
-      .default({ timeoutSeconds: 60, maxOutputBytes: 256_000, memoryMb: 256, maxBrokerCalls: 200 }),
+      .default({ timeoutSeconds: 60, maxOutputBytes: 256_000, memoryMb: 256, maxBrokerCalls: 200, mode: 'auto', requireContainer: false, containerPidsLimit: 64 }),
     /** Treat stdout of host commands as untrusted (taints the session). */
     execOutputTaints: z.boolean().default(true),
   })

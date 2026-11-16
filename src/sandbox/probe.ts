@@ -21,6 +21,8 @@ export interface ProbeReport {
   skipped: string[];
   /** Properties of the environment the probe observed, shown by `starclaw doctor`. */
   notes: string[];
+  /** Which isolation layer this report is about. */
+  layer?: 'process' | 'container';
 }
 
 const cache = new Map<string, Promise<ProbeReport>>();
@@ -191,10 +193,11 @@ module.exports = { execute };
       failures,
       skipped,
       notes,
+      layer: 'process',
     };
   } catch (e: any) {
     const f = { name: 'probe infrastructure', denied: false, detail: String(e?.message ?? e) };
-    report = { ok: false, nodeVersion: process.version, platform: `${process.platform}-${process.arch}`, durationMs: Date.now() - started, results: [f], failures: [f], skipped, notes };
+    report = { ok: false, nodeVersion: process.version, platform: `${process.platform}-${process.arch}`, durationMs: Date.now() - started, results: [f], failures: [f], skipped, notes, layer: 'process' };
   } finally {
     if (prevCanary === undefined) delete process.env.STARCLAW_PROBE_ENV_CANARY;
     else process.env.STARCLAW_PROBE_ENV_CANARY = prevCanary;

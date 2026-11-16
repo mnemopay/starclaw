@@ -13,7 +13,8 @@ import { TaintTracker, TaintedFileStore } from './governance/taint';
 import { Action, Approver, Decision, GovernorDenied } from './governance/types';
 import type { ChatTurn, LLM, LlmResult } from './llm/types';
 import { CognitiveMemory, MemoryVerifyReport } from './memory/CognitiveMemory';
-import { ProcessSandbox, RunResult } from './sandbox/ProcessSandbox';
+import type { RunResult, Sandbox } from './sandbox/types';
+import { SelectingSandbox } from './sandbox/select';
 import type { ProbeReport } from './sandbox/probe';
 import { SkillStore, sanitizeSkillName } from './skills/SkillStore';
 
@@ -31,7 +32,7 @@ export interface EngineOptions {
   learnSkills?: boolean;
   /** Injection points for tests. */
   signer?: Signer;
-  sandbox?: ProcessSandbox;
+  sandbox?: Sandbox;
   log?: (msg: string) => void;
 }
 
@@ -66,7 +67,7 @@ export class StarClawEngine {
   readonly governor: Governor;
   readonly audit: AuditLog;
   readonly memory: CognitiveMemory;
-  readonly sandbox: ProcessSandbox;
+  readonly sandbox: Sandbox;
   readonly broker: Broker;
   readonly budget: LlmBudget;
   readonly skills: SkillStore;
@@ -97,12 +98,17 @@ export class StarClawEngine {
     this.budget = new LlmBudget(this.policy.llmBudget.perRunCents, this.policy.llmBudget.perDayCents, path.join(this.stateDir, 'llm-budget.json'));
     this.sandbox =
       o.sandbox ??
-      new ProcessSandbox({
+      new SelectingSandbox({
+        mode: this.policy.sandbox.mode,
+        requireContainer: this.policy.sandbox.requireContainer,
         workspaceDir: this.workspaceDir,
         timeoutMs: this.policy.sandbox.timeoutSeconds * 1000,
         maxOutputBytes: this.policy.sandbox.maxOutputBytes,
         memoryMb: this.policy.sandbox.memoryMb,
         maxBrokerCalls: this.policy.sandbox.maxBrokerCalls,
+        containerImage: this.policy.sandbox.containerImage,
+        containerPidsLimit: this.policy.sandbox.containerPidsLimit,
+        containerRuntime: this.policy.sandbox.containerRuntime,
       });
     this.broker = new Broker({ governor: this.governor, workspaceDir: this.workspaceDir, stateDir: this.stateDir, taintedFiles: new TaintedFileStore(path.join(this.stateDir, 'tainted-files.json')) });
     this.audit.append('engine.start', { id: this.id, node: process.version, platform: process.platform, learnSkills: this.learnSkills, approver: o.approver?.name ?? 'none' });
@@ -127,7 +133,7 @@ export class StarClawEngine {
       this.audit.append('sandbox.probe', { ok: false, error: String(e.message).slice(0, 1000) });
       throw e;
     }
-    this.audit.append('sandbox.probe', { ok: sandbox.ok, node: sandbox.nodeVersion, checks: sandbox.results.length, skipped: sandbox.skipped });
+    this.audit.append('sandbox.probe', { ok: sandbox.ok, layer: sandbox.layer ?? this.sandbox.kind, active: this.sandbox.describe().slice(0, 600), node: sandbox.nodeVersion, checks: sandbox.results.length, skipped: sandbox.skipped });
     return { sandbox, memory };
   }
 
@@ -199,7 +205,7 @@ export class StarClawEngine {
       const execAction: Action = {
         class: 'exec',
         target: 'sandbox:js',
-        summary: `Run generated JavaScript (sha256 ${codeHash.slice(0, 12)}, ${code.length} chars) in the permission sandbox; its tool calls are governed individually`,
+        summary: `Run generated JavaScript (sha256 ${codeHash.slice(0, 12)}, ${code.length} chars) in the isolated sandbox; its tool calls are governed individually`,
         detail: code,
       };
       const d = await this.governor.authorize(execAction);
