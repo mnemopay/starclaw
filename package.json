@@ -3,6 +3,24 @@
   "version": "2.0.0-alpha.1",
   "description": "A governed autonomous AI agent: every action is policy-checked, approval-gated, spend-capped and written to a tamper-evident audit log.",
   "license": "Apache-2.0",
+  "author": "J&B Enterprise LLC <info@getbizsuite.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mnemopay/starclaw.git"
+  },
+  "homepage": "https://github.com/mnemopay/starclaw#readme",
+  "bugs": {
+    "url": "https://github.com/mnemopay/starclaw/issues"
+  },
+  "keywords": [
+    "ai-agent",
+    "agent-governance",
+    "agent-security",
+    "prompt-injection",
+    "audit-log",
+    "sandbox",
+    "mnemopay"
+  ],
   "main": "dist/index.js",
   "bin": {
     "starclaw": "dist/cli.js",
@@ -31,6 +49,7 @@
     "cli": "node dist/cli.js",
     "server": "node dist/server.js",
     "doctor": "node dist/cli.js doctor",
+    "demo": "node --import tsx demo/injection-demo.ts",
     "telegram": "node dist/telegram.js"
   },
   "dependencies": {

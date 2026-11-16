@@ -44,6 +44,21 @@ Other front ends (both fail closed without credentials):
 | `starclaw-telegram` | `TELEGRAM_BOT_TOKEN`, numeric `TELEGRAM_OWNER_ID` | Approve/Deny inline buttons, owner only, timeout = deny. Messages from others are ignored, or (with `TELEGRAM_ALLOW_PUBLIC=1`) run as tainted non-owner goals. |
 | `starclaw-server` | `STARCLAW_API_KEY` (16+ chars) | HTTP API + small web console on `127.0.0.1:3000`. Every `/api` route needs `Authorization: Bearer <key>`. No TLS: put it behind your own proxy if you expose it. |
 
+## See it work (2 minutes, offline)
+
+```bash
+git clone https://github.com/mnemopay/starclaw && cd starclaw && npm install
+npm run demo            # no API key, no network, no real money
+```
+
+A scripted model plays an agent that obeys instructions hidden in a web page. You watch StarClaw stop it from
+leaking data and from paying an attacker (even though the owner's policy *allows* web access and spending),
+verify the signed audit log, then see verification fail after one record is edited. The sandbox, Governor,
+taint tracking, approval flow and audit log in the demo are the real code; only the model and the payment rail
+are fakes. What it proves: injected instructions cannot spend or leak without a human who is shown where the
+content came from. What it does **not** prove: that a real model can't be steered (it can), or that the code is
+free of bugs. Narration script for recording it: [demo/README.md](demo/README.md).
+
 ## How it works
 
 ```
