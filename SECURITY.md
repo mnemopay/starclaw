@@ -133,6 +133,9 @@ Messages go only to the configured owner chat; there is no recipient parameter. 
 default for a clean session; a tainted session must ask, because a message to you is a phishing/exfiltration channel) and
 audited before the send. StarClaw's own notices (e.g. "job paused") use the same limits.
 
+### 1d-bis. Governed browser (`tools.browse*`, classes `browser.open|navigate|read`)
+Off unless `browser.enabled` and a non-empty `browser.allowedDomains`. Opening the tab is **always** asked (policy cannot allow it, unattended runs cannot auto-approve it); navigation is allowed by default but escalates to a human once the session is tainted. The host-side client reads the browser discovery file (`control.json`, holds the bearer token) on each call; the file and its directory are hard-denied to every file tool, and the token is scrubbed from anything that leaves the client. Page URLs are checked against the allow-list (no IPs, localhost, credentials or explicit ports) before any request; the browser enforces the same list independently. Everything the page returns is untrusted and taints the session. *Limits:* only tested against a fake of the API; the browser's own loopback isolation is documented by that project as untested on a real desktop; a tab left open is bounded only by `ttlSeconds`/`maxActions`.
+
 ### 1e. Legacy host commands (`tools.runCommand`, class `host.exec`)
 Still unsandboxed. It is now its own action class, never covered by a rule written for sandboxed `exec`, denied in every
 unattended run, and **denied whenever no approver is present (non-interactive), even if a policy rule says `allow`.**

@@ -84,6 +84,33 @@ export const NotifyPolicySchema = z
   })
   .strict();
 
+/** An allowed domain: an exact host (`example.com`) or `*.sub.example.com` (subdomains only). No IPs, no localhost. */
+export const BROWSER_DOMAIN_RE = /^(\*\.)?(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/;
+
+export const BrowserPolicySchema = z
+  .object({
+    /** Off by default. When false every tools.browse* call is refused before anything else happens. */
+    enabled: z.boolean().default(false),
+    /** REQUIRED non-empty when enabled. Enforced here before any request, and again by the browser's own egress proxy. */
+    allowedDomains: z
+      .array(z.string().regex(BROWSER_DOMAIN_RE, 'must be a lowercase domain like example.com or *.docs.example.com (no IPs, no localhost, no scheme, no path)'))
+      .max(50)
+      .default([]),
+    /** Actions per tab, counting the open. */
+    maxActions: z.number().int().min(1).max(200).default(20),
+    /** Browser-side spend envelope for the tab, integer cents. */
+    budgetCents: z.number().int().min(0).max(1_000_000).default(0),
+    /** Optional per-action cost the browser charges against the budget. */
+    actionCostCents: z.number().int().min(0).max(100_000).optional(),
+    ttlSeconds: z.number().int().min(30).max(3600).default(900),
+    /** Hard caps on what one read may return. */
+    maxReadBytes: z.number().int().min(1024).max(262_144).default(65_536),
+    maxLinks: z.number().int().min(1).max(500).default(100),
+    timeoutSeconds: z.number().int().min(1).max(120).default(70),
+  })
+  .strict()
+  .refine((b) => !b.enabled || b.allowedDomains.length > 0, { message: 'browser.allowedDomains must be non-empty when browser.enabled is true', path: ['allowedDomains'] });
+
 export const PolicySchema = z
   .object({
     version: z.literal(1),
@@ -105,11 +132,16 @@ export const PolicySchema = z
         'schedule.create': VerdictSchema.default('ask'),
         /** Messages only ever go to the configured owner; rate-limited and length-capped. Tainted sessions escalate to ask. */
         'notify.owner': VerdictSchema.default('allow'),
+        /** Whatever this says, opening a browser tab always needs a human (see ALWAYS_ASK). */
+        'browser.open': VerdictSchema.default('ask'),
+        'browser.navigate': VerdictSchema.default('allow'),
+        'browser.read': VerdictSchema.default('allow'),
       })
       .strict()
       .default({
         exec: 'ask', 'fs.read': 'ask', 'fs.write': 'ask', 'net.egress': 'ask', spend: 'ask', 'skill.save': 'ask', 'memory.write': 'ask',
         'shell.exec': 'ask', 'host.exec': 'ask', 'schedule.create': 'ask', 'notify.owner': 'allow',
+        'browser.open': 'ask', 'browser.navigate': 'allow', 'browser.read': 'allow',
       }),
     rules: z.array(RuleSchema).max(500).default([{ class: 'fs.read', inWorkspace: true, verdict: 'allow' }]),
     spend: z
@@ -199,6 +231,8 @@ export const PolicySchema = z
     scheduled: ScheduledPolicySchema.default(ScheduledPolicySchema.parse({})),
     /** tools.notifyOwner limits. */
     notify: NotifyPolicySchema.default(NotifyPolicySchema.parse({})),
+    /** The governed browser tab (tools.browse*). Disabled by default; needs the MnemoPay Native Browser running with its control API on. */
+    browser: BrowserPolicySchema.default(BrowserPolicySchema.parse({})),
     /** Treat stdout of host commands and of the shell container as untrusted (taints the session). */
     execOutputTaints: z.boolean().default(true),
   })

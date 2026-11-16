@@ -18,6 +18,12 @@ export const ACTION_CLASSES = [
   'schedule.create',
   /** A proactive message to the configured owner. */
   'notify.owner',
+  /** Opening the governed browser tab (MnemoPay Native Browser control API). A human always decides. */
+  'browser.open',
+  /** Navigating the open browser tab to another URL. */
+  'browser.navigate',
+  /** Reading text/links from, or closing, the open browser tab. */
+  'browser.read',
 ] as const;
 export type ActionClass = (typeof ACTION_CLASSES)[number];
 
@@ -31,13 +37,15 @@ export const TAINT_SENSITIVE: ReadonlySet<ActionClass> = new Set<ActionClass>([
   'host.exec',
   'schedule.create',
   'notify.owner',
+  'browser.open',
+  'browser.navigate',
 ]);
 
 /** Action classes that policy can never auto-allow, tainted or not: a human always decides (or the action is denied). */
-export const ALWAYS_ASK: ReadonlySet<ActionClass> = new Set<ActionClass>(['schedule.create']);
+export const ALWAYS_ASK: ReadonlySet<ActionClass> = new Set<ActionClass>(['schedule.create', 'browser.open']);
 
 /** Action classes that a scheduled (unattended) run can never have auto-allowed by a policy `allow`. */
-export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create']);
+export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open']);
 
 /** Action classes that are refused outright for runs with origin `scheduled`, whatever the policy says. */
 export const DENIED_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create']);

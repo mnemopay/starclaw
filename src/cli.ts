@@ -12,6 +12,7 @@ import type { Sandbox } from './sandbox/types';
 import { buildImage, cleanContainers, defaultImageTag, imageStatus, listSandboxContainers } from './sandbox/dockerImage';
 import { StarClawEngine } from './engine';
 import { runDaemon } from './daemon';
+import { browserStatus } from './browser/status';
 import { buildShellImage, cleanShellContainers, defaultShellImageTag, listShellContainers, shellImageStatus } from './shell/shellImage';
 
 const VERSION: string = (() => {
@@ -193,6 +194,9 @@ program
       for (const w of ld.warnings) console.log(`  WARNING: ${w}`);
       const sp = policy.search;
       console.log(`Search: ${sp.provider}${sp.provider === 'searxng' ? ' (' + (sp.searxngUrl ?? 'no searxngUrl set') + ')' : ''}${sp.provider === 'brave' ? '; key env ' + (sp.apiKeyEnv ?? 'BRAVE_API_KEY') + ': ' + (process.env[sp.apiKeyEnv ?? 'BRAVE_API_KEY'] ? 'set' : 'NOT set') : ''}`);
+      const bs = await browserStatus(policy);
+      console.log(bs.line);
+      for (const w of bs.warnings) console.log('  WARNING: ' + w);
       const layers: Array<['container' | 'process', Sandbox]> = [['container', sb.container], ['process', sb.proc]];
       for (const [name, layer] of layers) {
         try {

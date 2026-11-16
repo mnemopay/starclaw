@@ -5,6 +5,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { applyUnifiedDiff, EDIT_LIMITS, editByFind, encodeText, readText, unifiedDiff } from './edit';
 import { Governor } from './governance/governor';
+import { canonicalize } from './governance/canonical';
+import { ControlClient, ControlError, defaultDiscoveryPath, readDiscovery } from './browser/control';
+import { checkBrowserUrl, hostAllowed } from './browser/guard';
 import { TaintedFileStore } from './governance/taint';
 import { Action } from './governance/types';
 import { safeGet, parseHttpUrl } from './net/safeFetch';
@@ -62,6 +65,8 @@ export interface BrokerOptions {
   notifyLimiter?: NotifyLimiter;
   /** tools.scheduleCreate: absent = the tool is not available. */
   jobs?: JobStore;
+  /** Host-side location of the browser's control.json (default: the OS location, or MNEMOPAY_CONTROL_DISCOVERY). Never reachable from generated code. */
+  browserDiscoveryPath?: string;
 }
 
 const PathArgs = z.object({ path: z.string().min(1).max(1000) }).strict();
@@ -75,6 +80,11 @@ const EditArgs = z.object({ path: z.string().min(1).max(1000), find: z.string().
 const ShellArgsSchema = z.object({ command: z.string().min(1).max(4000) }).strict();
 const NotifyArgs = z.object({ text: z.string().min(1).max(10_000) }).strict();
 const ScheduleArgs = z.object({ name: z.string().min(1).max(60), schedule: z.string().min(1).max(100), goal: z.string().min(3).max(2000), kind: z.enum(['goal', 'heartbeat']).default('goal') }).strict();
+const BrowseOpenArgs = z.object({ url: z.string().min(1).max(4000) }).strict();
+const BrowseNavArgs = z.object({ url: z.string().min(1).max(4000) }).strict();
+const BrowseTextArgs = z.object({ maxBytes: z.number().int().min(1).max(262_144).optional() }).strict();
+const BrowseLinksArgs = z.object({ maxLinks: z.number().int().min(1).max(500).optional() }).strict();
+const NoArgs = z.object({}).strict();
 const SpendArgs = z.object({ cents: z.number(), payee: z.string().min(1).max(200), memo: z.string().max(500).default('') }).strict();
 
 /**
@@ -111,6 +121,7 @@ export class Broker {
     const base = path.basename(real).toLowerCase();
     let why: string | undefined;
     if (isInside(real, this.stateDir)) why = 'path is inside the StarClaw state directory (keys, audit log, memory)';
+    else if (this.isBrowserDiscoveryPath(real)) why = 'the browser control discovery file (it holds the control token) is never accessible';
     else if (base === '.env' || base.startsWith('.env.')) why = 'environment files are never accessible';
     else if (/(^|[\\/])\.git([\\/]|$)/i.test(real) && write) why = 'writing inside .git is not allowed';
     else if (write && !inWorkspace) why = 'writes outside the workspace are not allowed';
@@ -119,6 +130,19 @@ export class Broker {
       throw new Error(`denied by hard rule: ${why}`);
     }
     return { real, inWorkspace };
+  }
+
+  private get discoveryPath(): string {
+    return this.o.browserDiscoveryPath ?? defaultDiscoveryPath();
+  }
+
+  /** The browser's data directory holds control.json (the control token). No tool may read it, whatever a human clicks. */
+  private isBrowserDiscoveryPath(real: string): boolean {
+    try {
+      return isInside(real, realResolve(path.dirname(this.discoveryPath)));
+    } catch {
+      return false;
+    }
   }
 
   async handle(call: BrokerCall): Promise<unknown> {
@@ -147,6 +171,17 @@ export class Broker {
         return this.scheduleCreate(ScheduleArgs.parse(call.args));
       case 'spend':
         return this.spend(SpendArgs.parse(call.args));
+      case 'browseOpen':
+        return this.browseOpen(BrowseOpenArgs.parse(call.args));
+      case 'browseNavigate':
+        return this.browseNavigate(BrowseNavArgs.parse(call.args));
+      case 'browseReadText':
+        return this.browseRead('text', BrowseTextArgs.parse(call.args));
+      case 'browseReadLinks':
+        return this.browseRead('links', BrowseLinksArgs.parse(call.args));
+      case 'browseClose':
+        NoArgs.parse(call.args ?? {});
+        return this.browseClose();
       default:
         throw new Error(`unknown tool ${call.name}`);
     }
@@ -548,5 +583,209 @@ export class Broker {
 
   private async spend(a: { cents: number; payee: string; memo: string }) {
     return this.gov.spend({ cents: a.cents, payee: a.payee, memo: a.memo });
+  }
+
+  // ---- governed browser (MnemoPay Native Browser control API) ---------------------------------------------------
+
+  /** The one open tab (host-side state; generated code never sees the tab id, the token or the discovery file). */
+  private tab?: { id: string; used: number; expiresAt: number };
+
+  private browserRefuse(tool: string, reason: string, extra: Record<string, unknown> = {}): never {
+    this.gov.audit.append('browser.refused', { tool, reason, ...extra });
+    throw new Error(`browser tool refused: ${reason}`);
+  }
+
+  private browserCfg(tool: string) {
+    const b = this.gov.policy.browser;
+    if (!b.enabled) this.browserRefuse(tool, 'the browser is disabled (policy browser.enabled = false)');
+    if (b.allowedDomains.length === 0) this.browserRefuse(tool, 'browser.allowedDomains is empty');
+    return b;
+  }
+
+  /** Fresh read of the discovery file on every call (the token changes per browser launch). Fails closed and audits. */
+  private browserClient(tool: string): ControlClient {
+    try {
+      return new ControlClient(readDiscovery(this.discoveryPath), { timeoutMs: this.gov.policy.browser.timeoutSeconds * 1000 });
+    } catch (e: any) {
+      this.gov.audit.append('browser.unavailable', { tool, reason: String(e?.message ?? e).slice(0, 200) });
+      throw e;
+    }
+  }
+
+  private liveTab(tool: string) {
+    const b = this.browserCfg(tool);
+    const t = this.tab;
+    if (!t) return this.browserRefuse(tool, 'no browser tab is open (call tools.browseOpen first)');
+    if (Date.now() > t.expiresAt) {
+      this.tab = undefined;
+      return this.browserRefuse(tool, 'the browser tab expired (browser.ttlSeconds)');
+    }
+    if (t.used >= b.maxActions) return this.browserRefuse(tool, `the tab used its ${b.maxActions} allowed actions (browser.maxActions); close it and ask the owner`);
+    return t;
+  }
+
+  /** Taint on any answer from the browser (success or failure: either may carry page-derived text). */
+  private async browserCall<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      const res = await fn();
+      // Every page-derived result is untrusted, whatever the server's own `untrusted` flag says.
+      this.gov.taint.mark('web', `browser:${label}`);
+      return res;
+    } catch (e: any) {
+      if (e instanceof ControlError && e.info.answered) this.gov.taint.mark('web', `browser:${label}`);
+      throw e;
+    }
+  }
+
+  private receiptDigest(r: unknown): string | undefined {
+    if (r === undefined) return undefined;
+    try {
+      return createHash('sha256').update(canonicalize(r)).digest('hex');
+    } catch {
+      return 'unhashable';
+    }
+  }
+
+  /** Withhold content when the tab ended on a host outside the allow-list (the browser does this too; we do not rely on it). */
+  private assertFinalHost(data: any, allowed: readonly string[]) {
+    const u = data && typeof data === 'object' ? (data.url ?? data.final_url) : undefined;
+    if (typeof u !== 'string') return;
+    let host: string;
+    try {
+      host = new URL(u).hostname;
+    } catch {
+      throw new Error('the browser reported an unparseable page URL; content withheld');
+    }
+    if (!hostAllowed(host, allowed)) throw new Error(`the tab ended on ${host}, which is not in browser.allowedDomains; content withheld`);
+  }
+
+  private async browseOpen(a: { url: string }) {
+    const b = this.browserCfg('browseOpen');
+    if (this.tab && Date.now() <= this.tab.expiresAt) this.browserRefuse('browseOpen', 'a browser tab is already open (one at a time); close it first');
+    this.tab = undefined;
+    let u: URL;
+    try {
+      u = checkBrowserUrl(a.url, b.allowedDomains);
+    } catch (e: any) {
+      return this.browserRefuse('browseOpen', e.message, { host: safeHost(a.url) });
+    }
+    // Fail closed BEFORE asking a human to approve something that cannot work.
+    this.browserClient('browseOpen');
+    const envelope = {
+      budget_cents: b.budgetCents,
+      max_actions: b.maxActions,
+      allowed_domains: [...b.allowedDomains],
+      ttl_seconds: b.ttlSeconds,
+      ...(b.actionCostCents !== undefined ? { action_cost_cents: b.actionCostCents } : {}),
+    };
+    const clientRef = 'starclaw-' + randomBytes(6).toString('hex');
+    const action: Action = {
+      class: 'browser.open',
+      target: u.hostname,
+      host: u.hostname,
+      summary: `Open a governed browser tab at ${u.origin}${u.pathname} (allowed domains: ${b.allowedDomains.join(', ')}; ${b.maxActions} actions, ${b.budgetCents}c budget, ${b.ttlSeconds}s)`.slice(0, 400),
+      detail: JSON.stringify({ url: u.toString(), envelope, clientRef }, null, 2),
+    };
+    const out = await this.gov.governed(
+      action,
+      async () => {
+        const client = this.browserClient('browseOpen');
+        const res = await this.browserCall(u.toString(), () => client.openTab(u.toString(), envelope, clientRef));
+        if (typeof res.tab_id !== 'string') throw new Error('the browser did not return a tab id');
+        this.tab = { id: res.tab_id, used: 1, expiresAt: Date.now() + b.ttlSeconds * 1000 };
+        this.assertFinalHost(res.data, b.allowedDomains);
+        return { res, clientRef };
+      },
+      (r) => ({ tool: 'browseOpen', host: u.hostname, requestId: r.res.request_id, clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), untrusted: true }),
+    );
+    return { untrusted: true as const, opened: true, actionsLeft: b.maxActions - 1, data: out.res.data };
+  }
+
+  private async browseNavigate(a: { url: string }) {
+    const b = this.browserCfg('browseNavigate');
+    const t = this.liveTab('browseNavigate');
+    let u: URL;
+    try {
+      u = checkBrowserUrl(a.url, b.allowedDomains);
+    } catch (e: any) {
+      return this.browserRefuse('browseNavigate', e.message, { host: safeHost(a.url) });
+    }
+    const clientRef = 'starclaw-' + randomBytes(6).toString('hex');
+    const action: Action = {
+      class: 'browser.navigate',
+      target: u.hostname,
+      host: u.hostname,
+      summary: `Navigate the governed browser tab to ${u.origin}${u.pathname}`.slice(0, 300),
+      detail: JSON.stringify({ url: u.toString(), clientRef }, null, 2),
+    };
+    const out = await this.gov.governed(
+      action,
+      async () => {
+        const client = this.browserClient('browseNavigate');
+        t.used++;
+        const res = await this.browserCall(u.toString(), () => client.navigate(t.id, u.toString(), clientRef));
+        this.assertFinalHost(res.data, b.allowedDomains);
+        return { res, clientRef };
+      },
+      (r) => ({ tool: 'browseNavigate', host: u.hostname, requestId: r.res.request_id, clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), untrusted: true }),
+    );
+    return { untrusted: true as const, actionsLeft: b.maxActions - t.used, data: out.res.data };
+  }
+
+  private async browseRead(kind: 'text' | 'links', a: { maxBytes?: number; maxLinks?: number }) {
+    const tool = kind === 'text' ? 'browseReadText' : 'browseReadLinks';
+    const b = this.browserCfg(tool);
+    const t = this.liveTab(tool);
+    const clientRef = 'starclaw-' + randomBytes(6).toString('hex');
+    const maxBytes = Math.min(a.maxBytes ?? b.maxReadBytes, b.maxReadBytes);
+    const maxLinks = Math.min(a.maxLinks ?? b.maxLinks, b.maxLinks);
+    const action: Action = {
+      class: 'browser.read',
+      target: kind,
+      summary: `Read ${kind === 'text' ? `up to ${maxBytes} bytes of page text` : `up to ${maxLinks} links`} from the governed browser tab`,
+      detail: JSON.stringify({ kind, limit: kind === 'text' ? maxBytes : maxLinks, clientRef }),
+    };
+    const out = await this.gov.governed(
+      action,
+      async () => {
+        const client = this.browserClient(tool);
+        t.used++;
+        const res = await this.browserCall(kind, () => (kind === 'text' ? client.readText(t.id, maxBytes, clientRef) : client.readLinks(t.id, maxLinks, clientRef)));
+        this.assertFinalHost(res.data, b.allowedDomains);
+        return { res, clientRef };
+      },
+      (r) => ({ tool, requestId: r.res.request_id, clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), bytes: JSON.stringify(r.res.data ?? null).length, untrusted: true }),
+    );
+    return { untrusted: true as const, actionsLeft: b.maxActions - t.used, data: out.res.data };
+  }
+
+  private async browseClose() {
+    this.browserCfg('browseClose');
+    const t = this.tab;
+    if (!t) return this.browserRefuse('browseClose', 'no browser tab is open');
+    const clientRef = 'starclaw-' + randomBytes(6).toString('hex');
+    const action: Action = { class: 'browser.read', target: 'close', summary: 'Close the governed browser tab (ends its session)', detail: JSON.stringify({ kind: 'close', clientRef }) };
+    try {
+      const r = await this.gov.governed(
+        action,
+        async () => {
+          const client = this.browserClient('browseClose');
+          return this.browserCall('close', () => client.closeTab(t.id, clientRef));
+        },
+        (r) => ({ tool: 'browseClose', requestId: r.request_id, clientRef, receiptSha256: this.receiptDigest(r.receipt) }),
+      );
+      return { closed: true, requestId: r.request_id };
+    } finally {
+      // Whatever happened, stop using this tab id: the browser expires it by TTL anyway.
+      this.tab = undefined;
+    }
+  }
+}
+
+function safeHost(raw: string): string | undefined {
+  try {
+    return new URL(raw).hostname.slice(0, 200);
+  } catch {
+    return undefined;
   }
 }
