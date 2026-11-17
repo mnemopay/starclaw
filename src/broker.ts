@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { applyUnifiedDiff, EDIT_LIMITS, editByFind, encodeText, readText, unifiedDiff } from './edit';
 import { Governor } from './governance/governor';
+import { SubagentScope } from './governance/subagent';
 import { canonicalize } from './governance/canonical';
 import { ControlClient, ControlError, defaultDiscoveryPath, readDiscovery } from './browser/control';
 import { checkBrowserUrl, hostAllowed } from './browser/guard';
@@ -67,6 +68,10 @@ export interface BrokerOptions {
   jobs?: JobStore;
   /** Host-side location of the browser's control.json (default: the OS location, or MNEMOPAY_CONTROL_DISCOVERY). Never reachable from generated code. */
   browserDiscoveryPath?: string;
+  /** Set for a sub-agent's broker: the only tools and workspace directories it may touch. Absent = the run a human started. */
+  scope?: SubagentScope;
+  /** tools.spawnAgent: absent = the tool is not available. Receives the UNVALIDATED arguments; the host validates and attenuates. */
+  spawn?: (args: unknown) => Promise<unknown>;
 }
 
 const PathArgs = z.object({ path: z.string().min(1).max(1000) }).strict();
@@ -125,11 +130,18 @@ export class Broker {
     else if (base === '.env' || base.startsWith('.env.')) why = 'environment files are never accessible';
     else if (/(^|[\\/])\.git([\\/]|$)/i.test(real) && write) why = 'writing inside .git is not allowed';
     else if (write && !inWorkspace) why = 'writes outside the workspace are not allowed';
+    else if (this.o.scope && !this.inScopePaths(real, write)) why = `outside the directories this sub-agent was granted for ${write ? 'writing' : 'reading'} (${(write ? this.o.scope.writePaths : this.o.scope.readPaths).map((p) => p || '.').join(', ') || 'none'})`;
     if (why) {
       this.gov.audit.append('hard-rule.denied', { class: write ? 'fs.write' : 'fs.read', target: real, reason: why });
       throw new Error(`denied by hard rule: ${why}`);
     }
     return { real, inWorkspace };
+  }
+
+  /** A sub-agent's file scope: the REAL path (links resolved) must sit inside a real granted directory. */
+  private inScopePaths(real: string, write: boolean): boolean {
+    const scope = this.o.scope!;
+    return (write ? scope.writePaths : scope.readPaths).some((rel) => isInside(real, realResolve(path.join(this.workspace, ...rel.split('/').filter(Boolean)))));
   }
 
   private get discoveryPath(): string {
@@ -146,7 +158,15 @@ export class Broker {
   }
 
   async handle(call: BrokerCall): Promise<unknown> {
+    const scope = this.o.scope;
+    if (scope && !scope.tools.includes(call.name)) {
+      this.gov.audit.append('subagent.tool-denied', { tool: String(call.name).slice(0, 60), allowed: [...scope.tools] });
+      throw new Error(`tool ${String(call.name).slice(0, 60)} is not among this sub-agent's capabilities`);
+    }
     switch (call.name) {
+      case 'spawnAgent':
+        if (!this.o.spawn) throw new Error('tools.spawnAgent is not available');
+        return this.o.spawn(call.args);
       case 'readFile':
         return this.readFile(PathArgs.parse(call.args));
       case 'listDir':

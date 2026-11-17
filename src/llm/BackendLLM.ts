@@ -82,7 +82,7 @@ export class BackendLLM implements LLM {
 
   async generateCode(req: CodegenRequest): Promise<LlmResult<string>> {
     const history = req.history.slice(-10);
-    const r = await this.chat(this.cfg.model, codegenSystemPrompt(req.memoryContext, req.tainted), [...history, { role: 'user', content: `Goal: ${req.goal}\n\nWrite the code.` }], 1500, 0.2);
+    const r = await this.chat(this.cfg.model, codegenSystemPrompt(req.memoryContext, req.tainted, req.subagent), [...history, { role: 'user', content: `Goal: ${req.goal}\n\nWrite the code.` }], 1500, 0.2);
     return { ...r, value: stripFences(r.value) };
   }
 

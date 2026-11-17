@@ -22,6 +22,8 @@ export interface CodegenRequest {
   history: ChatTurn[];
   /** True when untrusted content is already in the session. */
   tainted: boolean;
+  /** Set when the code is for a sub-agent: what it was granted. Everything else is refused by the broker. */
+  subagent?: { depth: number; tools: string[]; domains: string[] | 'any'; readPaths: string[]; writePaths: string[]; spendCents: number; maxActions: number | null };
 }
 
 /**

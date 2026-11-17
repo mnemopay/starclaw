@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.0-alpha.6 (unreleased)
+
+### Added
+* Governed sub-agents: `tools.spawnAgent({ goal, capabilities: { tools, domains?, readPaths?, writePaths?, spendCents?, llmCents?, ttlSeconds?, maxActions? } })`. The child is a separate run (own Governor, taint, LLM budget, spend slice, broker, history) whose authority is its parent's INTERSECTED with the request. Anything wider than the parent holds is rejected before a child exists (all reasons listed; nothing is clipped). Off by default.
+* Policy block `subagents` (strict): `enabled` (false), `maxDepth` (1: children cannot spawn), `maxConcurrent` (2), `maxTotalPerRun` (4), `maxSeconds` (300), `maxActionsPerChild` (50), `maxLlmCentsPerChild` (10), `maxSpendCentsPerChild` (0: children cannot spend unless the owner raises it), `maxResultChars` (4000). Action class `agent.spawn` (default `ask`; taint-escalated; never auto-allowed in an unattended run).
+* Budget slicing: a child's LLM budget and spend are CARVED from the parent's remaining budget/cap (`LlmBudget.carve`, `SpendPool`/`SpendSlice`); the slice is unavailable to the parent and to other children while the child lives, the child is charged exactly what it used, the rest returns, and concurrent children cannot jointly exceed the parent. A child abandoned at its deadline is charged its whole LLM slice.
+* Taint: a child starts with its parent's taint; every child answer is untrusted data (`untrusted: true`) and marks the parent session tainted (`subagent-result`), clean child or not.
+* Approvals: requests from a child carry `subagent` (chain root run > ... > child, depth, goal) and say `SUB-AGENT` in the text every approver shows; no approver = deny; unattended runs keep deny-by-default and their children stay unattended.
+* Audit: `subagent.spawn` (full scope, hash, decision id) is written after the spawn decision and BEFORE the child exists; every record a child writes carries `runId`/`parentRunId`/`subagentDepth` in the same signed chain (`scopedAudit`); `subagent.result` is written after; `subagent.rejected` for refusals.
+* `host.exec` and `schedule.create` are never available to a child (hard rule in the Governor, and not grantable by a request); `spawnAgent` is only grantable when `maxDepth` allows another level. A child has no memory (no recall, no write, no skills) and reaches only the workspace directories it was granted (real paths compared, so links do not widen it); the state dir stays hard-denied.
+* `starclaw doctor` prints a Sub-agents line (and warns on `agent.spawn: allow` or `maxDepth > 1`). Prompt docs list `tools.spawnAgent`, and a sub-agent's prompt lists exactly what it holds.
+* Tests: `tests/subagents.scope.test.ts` (attenuation property tests, budget/spend slicing, Governor/Broker scope) and `tests/subagents.engine.test.ts` (engine end to end with a fake model, process sandbox, fake rail).
+
+### Changed
+* The Governor's run deadline now applies to sub-agent runs too (it was scheduled-only); `Governor.audit` is typed as `AuditSink`; the engine's spend authority is wrapped in a `SpendPool` (no behaviour change until a slice is carved).
+* A child's wall-clock life is also capped by `sandbox.timeoutSeconds`, because it runs inside its parent's sandbox call. Broker calls from one run are serialised by the sandbox, so one parent's children run one after another unless several runs (or direct API calls) spawn at once.
+
+### Not verified
+* Container sandbox layer (Docker was stopped on purpose): sub-agent tests run on the process layer only. Real LLM providers, real payment rails and the Telegram/HTTP approvers were not exercised with sub-agents.
+
 ## 2.0.0-alpha.5 (unreleased)
 
 ### Added

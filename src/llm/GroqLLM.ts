@@ -44,7 +44,7 @@ export class GroqLLM implements LLM {
   }
 
   async generateCode(req: CodegenRequest): Promise<LlmResult<string>> {
-    const messages: any[] = [{ role: 'system', content: codegenSystemPrompt(req.memoryContext, req.tainted) }];
+    const messages: any[] = [{ role: 'system', content: codegenSystemPrompt(req.memoryContext, req.tainted, req.subagent) }];
     for (const h of req.history.slice(-10)) messages.push({ role: h.role, content: h.content });
     messages.push({ role: 'user', content: `Goal: ${req.goal}\n\nWrite the code.` });
     const r = await this.chat('big', messages, 1500, 0.2);

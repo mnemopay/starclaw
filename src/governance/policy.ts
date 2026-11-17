@@ -155,6 +155,29 @@ export const ChannelsPolicySchema = z
   })
   .strict();
 
+export const SubagentsPolicySchema = z
+  .object({
+    /** Off by default. When false every tools.spawnAgent call is refused before anything else happens. */
+    enabled: z.boolean().default(false),
+    /** How deep the tree may go. 1 = the run you start may spawn children, and those children cannot spawn. */
+    maxDepth: z.number().int().min(1).max(3).default(1),
+    /** Children of ONE run running at the same time. */
+    maxConcurrent: z.number().int().min(1).max(8).default(2),
+    /** Children one run may start in total. */
+    maxTotalPerRun: z.number().int().min(1).max(50).default(4),
+    /** Longest wall-clock life of a child; also its default. Never longer than what is left of its parent's. */
+    maxSeconds: z.number().int().min(10).max(3600).default(300),
+    /** Most governed actions (tool calls) one child may attempt. */
+    maxActionsPerChild: z.number().int().min(1).max(500).default(50),
+    /** Largest LLM budget a child may be given (integer cents, carved from the parent's remaining per-run budget). Also its default. */
+    maxLlmCentsPerChild: z.number().int().min(1).max(10_000).default(10),
+    /** Largest spend a child may be given (integer cents, carved from the parent's remaining spend cap). 0 = children can never spend. */
+    maxSpendCentsPerChild: z.number().int().min(0).max(1_000_000).default(0),
+    /** A child's result is cut to this many characters before the parent sees it. */
+    maxResultChars: z.number().int().min(200).max(100_000).default(4000),
+  })
+  .strict();
+
 export const PolicySchema = z
   .object({
     version: z.literal(1),
@@ -180,12 +203,14 @@ export const PolicySchema = z
         'browser.open': VerdictSchema.default('ask'),
         'browser.navigate': VerdictSchema.default('allow'),
         'browser.read': VerdictSchema.default('allow'),
+        /** Starting a sub-agent. Needs subagents.enabled too. Whatever this says, an unattended run never auto-allows it, and a tainted session must ask. */
+        'agent.spawn': VerdictSchema.default('ask'),
       })
       .strict()
       .default({
         exec: 'ask', 'fs.read': 'ask', 'fs.write': 'ask', 'net.egress': 'ask', spend: 'ask', 'skill.save': 'ask', 'memory.write': 'ask',
         'shell.exec': 'ask', 'host.exec': 'ask', 'schedule.create': 'ask', 'notify.owner': 'allow',
-        'browser.open': 'ask', 'browser.navigate': 'allow', 'browser.read': 'allow',
+        'browser.open': 'ask', 'browser.navigate': 'allow', 'browser.read': 'allow', 'agent.spawn': 'ask',
       }),
     rules: z.array(RuleSchema).max(500).default([{ class: 'fs.read', inWorkspace: true, verdict: 'allow' }]),
     spend: z
@@ -281,6 +306,8 @@ export const PolicySchema = z
     slack: SlackPolicySchema.default(SlackPolicySchema.parse({})),
     discord: DiscordPolicySchema.default(DiscordPolicySchema.parse({})),
     channels: ChannelsPolicySchema.default(ChannelsPolicySchema.parse({})),
+    /** Governed sub-agents (tools.spawnAgent): children that can only ever hold LESS authority than the run that starts them. Disabled by default. */
+    subagents: SubagentsPolicySchema.default(SubagentsPolicySchema.parse({})),
     /** Treat stdout of host commands and of the shell container as untrusted (taints the session). */
     execOutputTaints: z.boolean().default(true),
   })

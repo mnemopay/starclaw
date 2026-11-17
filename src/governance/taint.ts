@@ -28,6 +28,11 @@ export class TaintTracker {
     return { tainted: this.tainted, sources: [...this.sources] };
   }
 
+  /** A sub-agent starts with everything its parent has seen: each source is re-marked (and so audited) in this tracker. */
+  inherit(from: Provenance): void {
+    for (const s of from.sources) this.mark(s.kind, s.ref);
+  }
+
   /** A human-initiated reset (new conversation). Never called by agent code. */
   reset(): void {
     this.sources = [];
