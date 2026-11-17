@@ -1,7 +1,8 @@
+import { reserveChat } from './reserve';
 import type { LlmUsage } from '../governance/budget';
 import { assertSafeBaseUrl, LlmError, postJson, scrub } from './http';
 import { codegenSystemPrompt } from './prompts';
-import type { ChatTurn, CodegenRequest, Intent, LLM, LlmResult } from './types';
+import type { ChatTurn, CodegenRequest, Intent, LLM, LlmResult, LlmCallOptions } from './types';
 
 export interface Price {
   inputCentsPerMTok: number;
@@ -42,7 +43,10 @@ export interface BackendConfig {
   fetchImpl?: typeof fetch;
 }
 
-const nonNegInt = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0);
+const nonNegInt = (n: unknown): number => {
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) throw new LlmError('provider response has missing or invalid usage', 'malformed');
+  return n;
+};
 
 function stripFences(s: string): string {
   return s.replace(/```(?:javascript|typescript|js|ts)?/g, '').trim();
@@ -63,40 +67,44 @@ export class BackendLLM implements LLM {
     return this.cfg.model;
   }
 
-  private async chat(model: string, system: string, messages: ChatTurn[], maxTokens: number, temperature: number): Promise<LlmResult<string>> {
-    const r = await this.backend.complete({ system, messages, maxTokens, temperature, model });
-    return { value: r.text, usage: r.usage, price: this.price, priceAssumed: this.priceAssumed };
+  private async chat(model: string, system: string, messages: ChatTurn[], maxTokens: number, temperature: number, options?: LlmCallOptions): Promise<LlmResult<string>> {
+    const reservation = reserveChat(options, { system, messages }, maxTokens, this.price);
+    const r = await this.backend.complete({ system, messages, maxTokens: reservation.maxTokens, temperature, model });
+    reservation.settle(r.usage);
+    return { value: r.text, usage: r.usage, price: this.price, priceAssumed: this.priceAssumed, prepaid: reservation.prepaid };
   }
 
-  async classifyIntent(goal: string): Promise<LlmResult<Intent>> {
+  async classifyIntent(goal: string, options?: LlmCallOptions): Promise<LlmResult<Intent>> {
     const r = await this.chat(
       this.cfg.smallModel ?? this.cfg.model,
       'Classify the user message as "conversation" (chat, greetings, questions needing no action) or "task" (anything needing files, web, code or commands). Reply with exactly one word.',
       [{ role: 'user', content: goal }],
       10,
       0.1,
+      options,
     );
     // Anything that is not clearly "conversation" is a task: fail towards the governed path.
     return { ...r, value: /^\s*"?conversation/i.test(r.value) ? 'conversation' : 'task' };
   }
 
-  async generateCode(req: CodegenRequest): Promise<LlmResult<string>> {
+  async generateCode(req: CodegenRequest, options?: LlmCallOptions): Promise<LlmResult<string>> {
     const history = req.history.slice(-10);
-    const r = await this.chat(this.cfg.model, codegenSystemPrompt(req.memoryContext, req.tainted, req.subagent), [...history, { role: 'user', content: `Goal: ${req.goal}\n\nWrite the code.` }], 1500, 0.2);
+    const r = await this.chat(this.cfg.model, codegenSystemPrompt(req.memoryContext, req.tainted, req.subagent), [...history, { role: 'user', content: `Goal: ${req.goal}\n\nWrite the code.` }], 1500, 0.2, options);
     return { ...r, value: stripFences(r.value) };
   }
 
-  async converse(message: string, history: ChatTurn[]): Promise<LlmResult<string>> {
-    return this.chat(this.cfg.model, 'You are StarClaw, a governed autonomous agent. In conversation mode you cannot take actions. Be concise and helpful.', [...history.slice(-10), { role: 'user', content: message }], 500, 0.7);
+  async converse(message: string, history: ChatTurn[], options?: LlmCallOptions): Promise<LlmResult<string>> {
+    return this.chat(this.cfg.model, 'You are StarClaw, a governed autonomous agent. In conversation mode you cannot take actions. Be concise and helpful.', [...history.slice(-10), { role: 'user', content: message }], 500, 0.7, options);
   }
 
-  async fixCode(goal: string, code: string, error: string): Promise<LlmResult<string>> {
+  async fixCode(goal: string, code: string, error: string, options?: LlmCallOptions): Promise<LlmResult<string>> {
     const r = await this.chat(
       this.cfg.model,
       'Fix the JavaScript so it parses. Use require()/module.exports, no import/export. Output only raw code, no markdown.',
       [{ role: 'user', content: `Goal: ${goal}\nError: ${error}\nCode:\n${code}` }],
       1500,
       0.1,
+      options,
     );
     return { ...r, value: stripFences(r.value) };
   }

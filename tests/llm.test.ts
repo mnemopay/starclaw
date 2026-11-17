@@ -269,7 +269,7 @@ return out;`);
     const s = await withServer((_r, res) => json(res, 200, openaiOk('conversation')));
     const d = tmpDir();
     const llm = createLLM(llmPolicy({ provider: 'openai-compat', model: 'm', baseUrl: s.base + '/v1' }), {});
-    const e = new StarClawEngine({ llm, policy: policyWith({ llmBudget: { perRunCents: 1, perDayCents: 500 } }), stateDir: path.join(d, 'state'), workspaceDir: path.join(d, 'ws') });
+    const e = new StarClawEngine({ llm, policy: policyWith({ llmBudget: { perRunCents: 10, perDayCents: 500 } }), stateDir: path.join(d, 'state'), workspaceDir: path.join(d, 'ws') });
     try {
       // 13 in + 5 out tokens at the placeholder 1500 c/Mtok = 27000 microcents per call: small, but accounted.
       const r = await e.executeGoal('hello');

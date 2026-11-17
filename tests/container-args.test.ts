@@ -34,7 +34,7 @@ describe('docker argument builder', () => {
     const names = new Set([1, 2, 3, 4].map(() => sb.buildArgs().join(' ')));
     assert.equal(names.size, 1, 'buildArgs() is deterministic for a given name');
     const src = require('node:fs').readFileSync(require.resolve('../src/sandbox/ContainerSandbox.ts'), 'utf8');
-    assert.match(src, /\['kill', name\]/);
+    assert.match(src, /\['rm', '--force', name\]/);
     assert.doesNotMatch(src, /taskkill|pkill|killall|docker.*kill.*--filter|ancestor=/);
   });
 

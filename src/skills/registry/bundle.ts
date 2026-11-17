@@ -38,7 +38,7 @@ export interface BundleLimits {
 }
 
 /** Tools a registry skill may declare. `runCommand` (unsandboxed host) and `scheduleCreate` can NEVER be declared. */
-export const DECLARABLE_TOOLS = DEFAULT_TOOL_NAMES.filter((t) => t !== 'runCommand' && t !== 'scheduleCreate') as [string, ...string[]];
+export const DECLARABLE_TOOLS = DEFAULT_TOOL_NAMES.filter((t) => t !== 'runCommand' && t !== 'scheduleCreate' && t !== 'spawnAgent') as [string, ...string[]];
 
 const SkillId = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,59}$/, 'skill id: lowercase letters, digits, - and _ (max 60)');
 const Version = z.string().regex(/^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/, 'version must be MAJOR.MINOR.PATCH');
@@ -68,7 +68,8 @@ export const CapabilitiesSchema = z
     /** Max integer cents per run. 0 (default) = the skill can never spend. */
     spendCents: z.number().int().min(0).max(100_000_000).default(0),
   })
-  .strict();
+  .strict()
+  .refine((c) => ![...c.tools, ...c.optionalTools].includes('shell') || c.paths.includes('**'), { message: 'shell requires an explicit whole-workspace path grant (**); narrow shell scopes are unsupported', path: ['paths'] });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
 
 export const ManifestSchema = z

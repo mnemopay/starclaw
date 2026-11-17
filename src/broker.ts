@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { applyUnifiedDiff, EDIT_LIMITS, editByFind, encodeText, readText, unifiedDiff } from './edit';
+import { actionIsLive } from './governance/lifetime';
 import { Governor } from './governance/governor';
 import { SubagentScope } from './governance/subagent';
 import { canonicalize } from './governance/canonical';
@@ -112,6 +113,7 @@ export class Broker {
 
   /** Hard rules no policy can relax. Throws after writing an audit record. */
   private checkPath(rawPath: string, write: boolean): { real: string; inWorkspace: boolean } {
+    if (!actionIsLive()) throw new Error('sandbox run has ended');
     const resolved = path.resolve(this.workspace, rawPath);
     // UNC and device paths (\\server\share, \\localhost\C$\..., \\?\..., \\.\...) can name a local file under a
     // different spelling that the directory comparisons below do not recognise: a red-team run read the audit
@@ -213,14 +215,20 @@ export class Broker {
     return this.gov.governed(
       action,
       async () => {
-        const st = fs.statSync(real);
+        const again = this.checkPath(a.path, false);
+        if (again.real !== real) throw new Error('path changed during approval');
+        const st = fs.lstatSync(real);
+        if (st.isSymbolicLink() || st.nlink !== 1) throw new Error('links are not readable through the broker');
         if (!st.isFile()) throw new Error('not a regular file');
-        const fd = fs.openSync(real, 'r');
+        const fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
         try {
-          const buf = Buffer.alloc(Math.min(st.size, MAX_FILE_BYTES));
-          fs.readSync(fd, buf, 0, buf.length, 0);
-          if (this.o.taintedFiles.has(real)) this.gov.taint.mark('tainted-file', real);
-          return { content: buf.toString('utf8'), truncated: st.size > MAX_FILE_BYTES };
+          const opened = fs.fstatSync(fd);
+          if (opened.dev !== st.dev || opened.ino !== st.ino || opened.nlink !== 1) throw new Error('file changed while opening');
+          const buf = Buffer.alloc(Math.min(opened.size, MAX_FILE_BYTES));
+          const count = fs.readSync(fd, buf, 0, buf.length, 0);
+          const bytes = buf.subarray(0, count);
+          if (this.o.taintedFiles.has(real, bytes)) this.gov.taint.mark('tainted-file', real);
+          return { content: bytes.toString('utf8'), truncated: opened.size > MAX_FILE_BYTES };
         } finally {
           fs.closeSync(fd);
         }
@@ -231,29 +239,50 @@ export class Broker {
 
   private async listDir(a: { path: string }) {
     const { real, inWorkspace } = this.checkPath(a.path, false);
-    return this.gov.governed({ class: 'fs.read', target: real, inWorkspace, summary: `List directory ${real}` }, async () =>
-      fs.readdirSync(real, { withFileTypes: true }).slice(0, 1000).map((d) => ({ name: d.name, dir: d.isDirectory() })),
+    return this.gov.governed({ class: 'fs.read', target: real, inWorkspace, summary: `List directory ${real}` }, async () => {
+      if (this.checkPath(a.path, false).real !== real) throw new Error('path changed during approval');
+      this.gov.taint.mark('tool-output', `directory:${real}`);
+      return fs.readdirSync(real, { withFileTypes: true }).slice(0, 1000).map((d) => ({ name: d.name, dir: d.isDirectory() }));
+    },
     );
   }
 
   private async writeFile(a: { path: string; content: string }) {
     const { real, inWorkspace } = this.checkPath(a.path, true);
+    const fingerprint = (): string | null => {
+      let st: fs.Stats;
+      try { st = fs.lstatSync(real); }
+      catch (e: any) { if (e.code === 'ENOENT') return null; throw e; }
+      if (!st.isFile() || st.isSymbolicLink() || st.nlink !== 1 || st.size > MAX_WRITE_BYTES) throw new Error('write target must be a regular single-link file within the size limit');
+      return createHash('sha256').update(fs.readFileSync(real)).digest('hex');
+    };
+    const before = fingerprint();
     const action: Action = {
       class: 'fs.write',
       target: real,
       inWorkspace,
-      summary: `Write ${Buffer.byteLength(a.content)} bytes to ${real}`,
+      summary: `Write ${Buffer.byteLength(a.content)} bytes to ${real} (${before ? `replace sha256 ${before}` : 'new file'})`,
       detail: a.content.slice(0, 3000),
     };
     return this.gov.governed(
       action,
       async () => {
+        if (this.checkPath(a.path, true).real !== real) throw new Error('path changed during approval');
         fs.mkdirSync(path.dirname(real), { recursive: true });
-        // Re-check after mkdir: the parent must still resolve inside the workspace.
-        if (!isInside(realResolve(real), this.workspace)) throw new Error('path escaped the workspace');
-        fs.writeFileSync(real, a.content, 'utf8');
+        if (this.checkPath(a.path, true).real !== real) throw new Error('path changed before writing');
+        if (fingerprint() !== before) throw new Error('file changed while awaiting approval; nothing written');
+        const tmp = path.join(path.dirname(real), `.starclaw-tmp-${randomBytes(12).toString('hex')}`);
+        try {
+          fs.writeFileSync(tmp, a.content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+          if (this.checkPath(a.path, true).real !== real) throw new Error('path changed before commit');
+          if (fingerprint() !== before) throw new Error('file changed before commit; nothing written');
+          if (before === null) {
+            fs.linkSync(tmp, real); // Exclusive creation: never overwrite a racing writer.
+            fs.unlinkSync(tmp);
+          } else fs.renameSync(tmp, real);
+        } finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
         if (this.gov.taint.tainted) this.o.taintedFiles.add(real);
-        else this.o.taintedFiles.remove(real);
+        else this.o.taintedFiles.remove(real, Buffer.from(a.content, 'utf8'));
         return { written: Buffer.byteLength(a.content), path: real };
       },
     );
@@ -278,9 +307,10 @@ export class Broker {
     }
     if (lst) {
       if (lst.isSymbolicLink()) throw new Error('refusing to edit through a symbolic link');
-      if (!lst.isFile()) throw new Error('not a regular file');
+      if (!lst.isFile() || lst.nlink !== 1) throw new Error('not a regular single-link file');
       if (lst.size > EDIT_LIMITS.maxFileBytes) throw new Error(`file is larger than ${EDIT_LIMITS.maxFileBytes} bytes`);
       orig = fs.readFileSync(real);
+      if (this.o.taintedFiles.has(real, orig)) this.gov.taint.mark('tainted-file', real);
     }
     const shaBefore = orig ? createHash('sha256').update(orig).digest('hex') : null;
     if (expectSha256 && shaBefore !== expectSha256.toLowerCase()) throw new Error(`expectSha256 precondition failed: the file is ${shaBefore ?? 'absent'}`);
@@ -358,7 +388,7 @@ export class Broker {
           throw e;
         }
         if (this.gov.taint.tainted) this.o.taintedFiles.add(prep.real);
-        else this.o.taintedFiles.remove(prep.real);
+        else this.o.taintedFiles.remove(prep.real, prep.newBuf);
         const after = createHash('sha256').update(prep.newBuf).digest('hex');
         return { path: prep.real, changed: true, sha256Before: prep.shaBefore, sha256After: after, added: prep.diff.added, removed: prep.diff.removed };
       },

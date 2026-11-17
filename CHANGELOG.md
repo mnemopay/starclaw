@@ -2,6 +2,15 @@
 
 ## 2.0.0-alpha.7 (unreleased)
 
+### Reliability and security
+* Integrated registry skills with the subagent-capable engine. Registry skills cannot delegate; shell use requires explicit whole-workspace consent.
+* Added bounded observation/replanning, read-only runtime recovery, and per-goal deduplication of successful mutations from earlier steps. Saved code is reused only for its exact original goal; completion memory includes the outcome.
+* Serialized owner runs and refused session resets during active/queued work. Late approvals cannot revive actions from an exited sandbox, including nested invocations.
+* Bound file provenance to clean content hashes. Unknown/changed files, editing and directory results propagate untrusted provenance. Hardened approval-time file checks, hard-link handling, atomic writes and conflict detection.
+* Built-in model backends reserve estimated request cost before dispatch, adjust output limits to funds, reconcile usage, and fail closed on corrupt/locked daily ledgers. Provider errors retain their reservations. Estimates still depend on configured prices and provider accounting.
+* Container termination waits for exact-name removal and handles Docker auto-removal races.
+* Added adversarial and multi-step regression tests. See `docs/competitive-roadmap.md` for boundaries and remaining product work.
+
 ### Added
 * **Signed skills registry** (`src/skills/registry`), deliberately NOT an open store: no catalogue, no search, no auto-install, and **no network fetch at all** (bundles are local `.starclaw-skill` files you point to). Policy block `skillsRegistry` (strict, **disabled by default**; when disabled, `skills install` and running a registry skill are refused and nothing else changes).
   * A skill runs only if (1) it is signed (Ed25519, the existing signer code) by a publisher key YOU pinned in the local keyring (unknown publisher = refuse); (2) the manifest verifies against that signature and every member's sha256 and size matches the signed manifest (any tamper = refuse, fail closed); (3) it **declares** its capabilities (tool names, domains, workspace path scopes, `spendCents` = 0 by default) and runs **attenuated** to the intersection of those and the current policy, never wider (an undeclared tool or scope is refused and audited; a REQUIRED tool the policy denies means it will not run); (4) you approved the install after seeing publisher fingerprint, version, declared capabilities, file hashes and a code and capability diff against any installed version (new action class `skill.install`: ALWAYS asks whatever the policy says, never in unattended runs, no approver = deny); (5) it is not revoked or expired, checked on **every load and every run**; (6) it is not an unflagged rollback or publisher swap (`--allow-rollback` / `--allow-publisher-change`, and a fresh approval that says so).

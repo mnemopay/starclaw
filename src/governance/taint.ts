@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import { Provenance, TaintKind, TaintSource } from './types';
 
 /**
@@ -39,39 +40,43 @@ export class TaintTracker {
   }
 }
 
-/**
- * Remembers which workspace files were written while the session was tainted, so that a *later* session
- * that reads them is tainted too. Best effort: it only sees writes made through the broker.
- */
+/** Content-bound provenance. Only matching clean broker writes are trusted across sessions. */
 export class TaintedFileStore {
-  private set = new Set<string>();
+  // Only a content hash produced by a clean broker write establishes trust.
+  // Legacy lists, missing/corrupt stores and external edits are unknown, hence tainted.
+  private clean = new Map<string, string>();
   constructor(private readonly file?: string) {
-    if (file && fs.existsSync(file)) {
-      try {
-        const arr = JSON.parse(fs.readFileSync(file, 'utf8'));
-        if (Array.isArray(arr)) this.set = new Set(arr.filter((x) => typeof x === 'string'));
-      } catch {
-        // Unreadable store: fail closed by treating nothing as known-clean is impossible; start empty but note it.
-        this.set = new Set();
+    if (!file || !fs.existsSync(file)) return;
+    try {
+      const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (state.version === 2 && Array.isArray(state.clean)) {
+        for (const pair of state.clean) {
+          if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string' || !/^[a-f0-9]{64}$/.test(pair[1])) throw new Error('invalid provenance');
+          this.clean.set(this.key(pair[0]), pair[1]);
+        }
       }
-    }
+    } catch { this.clean.clear(); }
   }
-  private key(p: string) {
-    return process.platform === 'win32' ? p.toLowerCase() : p;
-  }
-  add(p: string) {
-    this.set.add(this.key(p));
+  private key(p: string) { return process.platform === 'win32' ? p.toLowerCase() : p; }
+  private hash(bytes: Buffer) { return createHash('sha256').update(bytes).digest('hex'); }
+  add(p: string) { this.clean.delete(this.key(p)); this.persist(); }
+  remove(p: string, bytes?: Buffer) {
+    this.clean.set(this.key(p), this.hash(bytes ?? fs.readFileSync(p)));
     this.persist();
   }
-  remove(p: string) {
-    if (this.set.delete(this.key(p))) this.persist();
-  }
-  has(p: string) {
-    return this.set.has(this.key(p));
+  has(p: string, bytes?: Buffer): boolean {
+    const hash = this.clean.get(this.key(p));
+    if (!hash) return true;
+    try { return hash !== this.hash(bytes ?? fs.readFileSync(p)); }
+    catch { return true; }
   }
   private persist() {
     if (!this.file) return;
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.writeFileSync(this.file, JSON.stringify([...this.set]));
+    const temp = `${this.file}.${randomUUID()}.tmp`;
+    try {
+      fs.writeFileSync(temp, JSON.stringify({ version: 2, clean: [...this.clean] }), { flag: 'wx', mode: 0o600 });
+      fs.renameSync(temp, this.file);
+    } finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
   }
 }

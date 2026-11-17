@@ -281,3 +281,29 @@ Off by default. When enabled, one HTTP listener is bound to **127.0.0.1 only** (
 `commander`, `dotenv`, `express`, `groq-sdk`, `zod`. Install scripts are not needed. The SDK is trusted for its
 token arithmetic only; its source was read for the units and mutability of tokens (`validateToken` returns live
 objects, so the registry is never exposed outside the Governor).
+# Hardening of multi-step execution
+
+Owner goals and registry skill runs are serialized. A session reset is refused while owner work is
+active or queued. Broker actions carry a sandbox invocation lifetime: approvals received after that
+invocation exits cannot start its deferred actions. Actions already dispatched to external systems
+can still complete; a timeout is not a transaction rollback.
+
+Unknown or externally modified workspace files are untrusted. Clean provenance is bound to the hash
+of bytes written through the broker, rather than merely to a path. Corrupt and legacy provenance
+state does not establish trust. Reads and edits refuse hard-linked files; shell staging skips them.
+Whole-file writes recheck paths and original content after approval and commit atomically. These are
+Node-level checks, not a race-free native boundary against a hostile same-user process.
+
+Registry skills declaring shell access must declare whole-workspace paths (`**`); narrower grants
+are rejected. They cannot declare delegation. A shell grant includes its staged workspace and
+write-back behavior, so only grant it to a skill permitted to operate on that whole workspace.
+
+Multi-step recovery never auto-retries a failed step that attempted a mutation, timed out, or had an
+unhandled denial. It cannot turn a denied continuation into another model attempt. Successful
+mutations from earlier steps are deduplicated within a goal; this does not survive a process crash.
+Real payment rails still require durable transaction idempotency and outcome reconciliation.
+
+Built-in model backends reserve conservative request cost before dispatch. This is based on text
+estimates and configured prices, not a guaranteed provider invoice ceiling. Errors and missing usage
+retain the reservation; ledger corruption refuses further spending. Custom model implementations
+must use the supplied budget option to obtain preflight reservations.

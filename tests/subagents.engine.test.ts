@@ -151,7 +151,7 @@ describe('sub-agents through the engine', () => {
       assert.ok(child.some((x) => x.type === 'goal.received') && child.some((x) => x.type === 'exec.start') && child.some((x) => x.type === 'decision.request' && x.data.class === 'fs.read'));
       assert.equal(result.data.childId, cid);
       assert.equal(result.data.ok, true);
-      assert.equal(result.data.childTainted, false);
+      assert.equal(result.data.childTainted, true, 'externally supplied workspace files are untrusted');
       verify();
     });
 
