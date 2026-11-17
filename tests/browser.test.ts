@@ -70,6 +70,9 @@ async function startFakeBrowser(opts: { token?: string; auditPath?: () => string
         /* no audit yet */
       }
       hits.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers, body, auditAtArrival });
+      // Same framing rules as the real server's strict parser (found on a real desktop: a chunked body was refused).
+      if (req.headers['transfer-encoding'] !== undefined) return fail(res, 400, 'bad_request', 'transfer-encoding is not supported');
+      if (req.headers['content-length'] !== undefined && req.headers['content-length'] !== String(Buffer.byteLength(text))) return fail(res, 400, 'bad_request', 'invalid content-length');
       const port = (server.address() as AddressInfo).port;
       if (req.headers.origin || Object.keys(req.headers).some((h) => h.startsWith('sec-fetch-'))) return fail(res, 403, 'forbidden_origin', 'browser-originated request refused');
       if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) return fail(res, 403, 'forbidden_host', 'bad Host');
