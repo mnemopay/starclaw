@@ -24,6 +24,8 @@ export const ACTION_CLASSES = [
   'browser.navigate',
   /** Reading text/links from, or closing, the open browser tab. */
   'browser.read',
+  /** A run asking to start a sub-agent with a narrower capability set (tools.spawnAgent). */
+  'agent.spawn',
 ] as const;
 export type ActionClass = (typeof ACTION_CLASSES)[number];
 
@@ -39,16 +41,20 @@ export const TAINT_SENSITIVE: ReadonlySet<ActionClass> = new Set<ActionClass>([
   'notify.owner',
   'browser.open',
   'browser.navigate',
+  'agent.spawn',
 ]);
 
 /** Action classes that policy can never auto-allow, tainted or not: a human always decides (or the action is denied). */
 export const ALWAYS_ASK: ReadonlySet<ActionClass> = new Set<ActionClass>(['schedule.create', 'browser.open']);
 
 /** Action classes that a scheduled (unattended) run can never have auto-allowed by a policy `allow`. */
-export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open']);
+export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open', 'agent.spawn']);
 
 /** Action classes that are refused outright for runs with origin `scheduled`, whatever the policy says. */
 export const DENIED_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create']);
+
+/** Action classes that are refused outright inside a sub-agent run, whatever the policy and the capability request say. */
+export const DENIED_IN_SUBAGENT: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create']);
 
 export type Verdict = 'allow' | 'ask' | 'deny';
 
@@ -68,7 +74,7 @@ export interface Action {
   host?: string;
 }
 
-export type TaintKind = 'web' | 'non-owner-message' | 'tool-output' | 'tainted-memory' | 'tainted-file' | 'scheduled-job';
+export type TaintKind = 'web' | 'non-owner-message' | 'tool-output' | 'tainted-memory' | 'tainted-file' | 'scheduled-job' | 'subagent-result';
 
 export interface TaintSource {
   kind: TaintKind;
@@ -85,7 +91,7 @@ export interface Decision {
   id: string;
   allowed: boolean;
   /** Who/what made the final call. */
-  by: 'policy' | 'scheduled-policy' | 'human' | 'default-deny' | 'hard-rule' | 'spend-authority' | 'no-approver' | 'timeout' | 'approver-error';
+  by: 'policy' | 'scheduled-policy' | 'human' | 'default-deny' | 'hard-rule' | 'spend-authority' | 'no-approver' | 'timeout' | 'approver-error' | 'subagent-scope';
   reason: string;
   escalatedByTaint: boolean;
   provenance: Provenance;
@@ -109,6 +115,18 @@ export interface ApprovalRequest {
   expiresAt: number;
   /** Set for unattended runs: the job and trigger time the request belongs to. */
   scheduled?: { jobId: string; triggerAt: string };
+  /** Set when the action comes from a sub-agent run: the full chain, root run first, this sub-agent last. */
+  subagent?: SubagentRef;
+}
+
+/** Who a sub-agent is and where it came from. Shown to the approver and written into every audit record of the run. */
+export interface SubagentRef {
+  runId: string;
+  parentRunId: string;
+  /** Root run id first, this sub-agent's id last. */
+  chain: string[];
+  depth: number;
+  goal: string;
 }
 
 export type ApprovalAnswer = 'approve' | 'deny';
@@ -130,6 +148,10 @@ export function describeRequest(req: ApprovalRequest): string {
   lines.push(`Action : ${a.class}`);
   lines.push(`Target : ${a.target}`);
   lines.push(`Summary: ${a.summary}`);
+  if (req.subagent) {
+    lines.push(`Origin : SUB-AGENT (depth ${req.subagent.depth}) - NOT the run you started. Chain: ${req.subagent.chain.join(' > ')}`);
+    lines.push(`         Its goal, written by the parent run: ${req.subagent.goal.slice(0, 300)}`);
+  }
   if (req.scheduled) lines.push(`Origin : SCHEDULED job ${req.scheduled.jobId}, triggered ${req.scheduled.triggerAt} (nobody is at the terminal)`);
   if (a.cents !== undefined) lines.push(`Cost   : ${a.cents} cents (${(a.cents / 100).toFixed(2)} in the rail's currency unit)`);
   if (req.provenance.tainted) {

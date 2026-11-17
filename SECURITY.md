@@ -141,6 +141,42 @@ Still unsandboxed. It is now its own action class, never covered by a rule writt
 unattended run, and **denied whenever no approver is present (non-interactive), even if a policy rule says `allow`.**
 Prefer `tools.shell`.
 
+### 1f. Sub-agents (`tools.spawnAgent`, `src/governance/subagent.ts`)
+Off unless `subagents.enabled`. A run can start a child run, and **the child can only ever hold less than its parent**: its
+scope is the parent's scope narrowed by what the parent explicitly asks for, computed by one function (`attenuate`). Asking
+for anything wider (a tool, host, directory, spend, LLM budget, time or action count the parent does not hold) rejects the
+whole request before a child exists; nothing is clipped silently. Scope is checked on top of everything else, never instead
+of it: the result is the intersection of the scope and the policy, taint escalation, approvals and spend authority, which
+all still apply. Enforcement is in three places: the Governor (action classes implied by the tool list, hosts, a count of
+governed actions, the deadline, and a hard denial of `host.exec`/`schedule.create`), the Broker (the tool allow-list, and
+workspace directories compared as REAL paths so a link inside a granted directory does not widen it), and the budget/spend
+objects (slices are carved, so reserved + carved never exceeds the cap and concurrent children cannot jointly exceed the parent).
+
+* **Limits (policy `subagents`, all hard):** depth (default 1: children cannot spawn), concurrent children, total children per
+  run, wall-clock (a child's deadline is the shortest of the request, `maxSeconds`, `sandbox.timeoutSeconds` and what is left of
+  its parent's), governed actions, result size. Spend defaults to 0 and is zero unless the owner raises `maxSpendCentsPerChild`.
+* **Taint:** the child starts with its parent's taint. Its answer is untrusted data and taints the parent session whether or not
+  the child itself was tainted, so a child that was steered cannot hand its parent anything that skips the parent's own approvals.
+* **Approvals:** the spawn itself is an `agent.spawn` action whose approval shows the full scope and chain (default `ask`; escalated
+  when tainted; never auto-allowed in an unattended run). Anything a child needs a human for reaches the same approver with
+  `subagent` chain and depth, labelled `SUB-AGENT` in the text. No approver = deny. A scheduled run's children stay unattended:
+  `ask` is denied unless `scheduled.defaultVerdictForAsk` is `ask-async` and the approver reaches the owner away from the terminal.
+* **Audit:** `subagent.spawn` (scope, scope hash, decision id, budgets) is written after the spawn decision and before the child
+  exists; every record the child writes carries `runId`, `parentRunId` and `subagentDepth`; `subagent.result` is written after.
+  All in the one signed chain.
+* **Memory and state:** a child recalls nothing, writes no memory and saves no skills. It reaches only granted workspace
+  directories; the state directory, `.env*` and the browser discovery file stay hard-denied. `tools.shell` can only be granted
+  with whole-workspace read access because it copies the whole workspace into its container.
+
+*Limits:* a sub-agent is a run in the same process and the same sandbox layer as its parent, not a separate trust boundary: if
+generated code escapes the sandbox, the scope does not contain it. Taint is still whole-session and coarse. A child that
+overruns its deadline is abandoned at the deadline (its whole LLM slice is charged, its spend slice is closed so late spends
+fail) but its sandbox process runs until the sandbox timeout. A child's wall-clock time counts against its parent's sandbox
+timeout. Domains are matched on the host name of each request and redirect hop, not on the resolved address (the SSRF guard
+still applies to that). Verified with a fake model and the process sandbox only (property tests over random requests, mutation
+checks that remove each control and watch a test fail); the container layer, real model providers and real payment rails were
+not exercised with sub-agents.
+
 ### 2. Governor and approvals (`src/governance`)
 Every brokered capability is an `Action`; policy returns allow/ask/deny; deny-overrides. Decisions are appended
 to the audit log **before** the action runs; results after. No approver configured means every `ask` is a
@@ -156,7 +192,7 @@ payload, but a human may not understand it (e.g. an approved `powershell -c ...`
 the request, including code and URLs, through Telegram's servers.
 
 ### 3. Taint tracking
-Session taint is set by: any `fetchUrl` response; goals from non-owner origins; host-command output (default,
+Session taint is set by: any `fetchUrl` response; any sub-agent's answer (`subagent-result`); goals from non-owner origins; host-command output (default,
 `execOutputTaints`); recalled memories written while tainted; reads of workspace files written while tainted.
 While tainted, `exec`, `net.egress`, `spend`, `skill.save` are never auto-allowed. Tested with simulated
 injections (a fetched page that instructs exfiltration and payment, mid-run and across turns), each with a

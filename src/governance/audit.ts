@@ -31,6 +31,16 @@ export function headPath(logPath: string): string {
   return logPath + '.head';
 }
 
+/** The part of the log that governors and brokers use. A sub-agent gets a scoped view of the SAME log (one chain). */
+export interface AuditSink {
+  append(type: string, data: Record<string, unknown>): AuditRecord;
+}
+
+/** Same log and same chain; every record also carries `extra` (run id, parent run id, depth of a sub-agent). `extra` wins over caller data. */
+export function scopedAudit(base: AuditSink, extra: Record<string, unknown>): AuditSink {
+  return { append: (type, data) => base.append(type, { ...data, ...extra }) };
+}
+
 /**
  * Append-only, hash-chained, Ed25519-signed JSONL log.
  *

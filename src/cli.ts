@@ -6,6 +6,7 @@ import { applySandboxFlags, createEngine, CommonCliOptions } from './bootstrap';
 import { CliApprover } from './governance/approvers';
 import { verifyAuditFile } from './governance/audit';
 import { defaultPolicy, loadPolicy } from './governance/policy';
+import { subagentsStatus } from './governance/subagent';
 import { describeLlm } from './llm/factory';
 import { SelectingSandbox } from './sandbox/select';
 import type { Sandbox } from './sandbox/types';
@@ -207,6 +208,9 @@ program
         channelsBroken = channelsBroken || cs.broken;
       }
       if (channelsBroken) console.log('  A channel is enabled but misconfigured: `starclaw daemon` will refuse to start until that is fixed.');
+      const ss = subagentsStatus(policy);
+      console.log(ss.line);
+      for (const w of ss.warnings) console.log('  WARNING: ' + w);
       const layers: Array<['container' | 'process', Sandbox]> = [['container', sb.container], ['process', sb.proc]];
       for (const [name, layer] of layers) {
         try {

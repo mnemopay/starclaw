@@ -1,5 +1,7 @@
 export { StarClawEngine } from './engine';
-export type { EngineOptions, GoalOptions, GoalResult, BootReport, Origin } from './engine';
+export type { EngineOptions, GoalOptions, GoalResult, BootReport, Origin, SubagentResult } from './engine';
+export { attenuate, SubagentRejected, SpawnRequestSchema } from './governance/subagent';
+export type { SubagentScope } from './governance/subagent';
 export { Governor } from './governance/governor';
 export { AuditLog, verifyAuditFile } from './governance/audit';
 export { loadPolicy, parsePolicy, defaultPolicy, PolicyError } from './governance/policy';

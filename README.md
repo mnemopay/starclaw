@@ -5,7 +5,7 @@ runs that code in an isolated sandbox (a locked-down Docker container, with Node
 engine** that can allow, ask a human, or deny, and that writes a **signed, hash-chained audit record before
 anything runs**.
 
-> **Status: `2.0.0-alpha.5` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
+> **Status: `2.0.0-alpha.6` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
 > npm `next` tag; not yet recommended for customers.** See [Known limits](#known-limits) and
 > [SECURITY.md](SECURITY.md) first. Tested on Windows 11 x64 with Node 25.9.0 only. The old `starclaw@1.0.0` on npm
 > is deprecated and broken: do not use it.
@@ -125,6 +125,14 @@ goal ──> LLM writes code ──> Governor: exec? ──(ask/allow/deny)─�
 * **Audit log** (`.starclaw/audit.jsonl`): JSONL, each record hash-chained to the previous one and Ed25519-signed,
   plus a signed head checkpoint. `starclaw audit verify` checks it offline and detects edits, deletions,
   reordering and tail truncation (all covered by tests).
+* **Sub-agents** (`tools.spawnAgent`, off by default; policy block `subagents`): a run can start a child run that holds
+  **strictly less** authority than it does. The child's scope is the parent's, narrowed by what the parent explicitly asks
+  for (tools, hosts, workspace directories, spend carved from the parent's remaining cap, LLM budget carved from its
+  remaining budget, a shorter deadline, fewer actions); a request for MORE than the parent holds is rejected before a child
+  exists, never clipped. Depth, concurrent and total children are capped (default: children cannot spawn). A child inherits
+  its parent's taint, its answer comes back as untrusted data and taints the parent, anything it needs a human for reaches
+  the owner flagged as a sub-agent with the full chain, `host.exec` / `schedule.create` are never available to it, it gets
+  no memory, and every record it writes names its parent in the same audit chain. See SECURITY.md 1f.
 * **Memory** (`node:sqlite`, FTS5; no native add-on): every memory is hash-chained and signed; recall verifies
   rows and quarantines any that were modified. Skills are pinned by SHA-256 and refused if the file changed.
 
@@ -151,6 +159,10 @@ goal ──> LLM writes code ──> Governor: exec? ──(ask/allow/deny)─�
 * Docker was only tested on Windows 11 + Docker Desktop (Linux containers, WSL2). Linux and macOS hosts are untested.
 * No payment rail is included. Real money movement is unimplemented and untested.
 * `tools.runCommand` runs approved commands unsandboxed on the host.
+* Sub-agents are runs inside the same process and the same sandbox layer as their parent, not a separate trust boundary:
+  the scope is enforced by the Governor and Broker, so a sandbox escape is not contained by it. A child that overruns its
+  deadline is abandoned (and charged its whole LLM slice) but its sandbox process runs until the sandbox timeout. Tested
+  with a fake model and the process sandbox only; the container layer was not exercised.
 * Memory and audit integrity are only as strong as the secrecy of the key in `.starclaw/`.
 
 ### Why Node >= 25.9

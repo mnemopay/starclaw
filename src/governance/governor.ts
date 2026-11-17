@@ -1,19 +1,23 @@
 import { randomUUID } from 'node:crypto';
-import { AuditLog } from './audit';
+import type { AuditSink } from './audit';
 import { Policy, evaluatePolicy } from './policy';
+import { SubagentScope, scopeClasses, scopeDenies } from './subagent';
 import { PaymentRail, SpendAuthority, isValidCents, NoPaymentRail } from './spend';
 import { TaintTracker } from './taint';
 import {
   ALWAYS_ASK,
   Action,
   ApprovalAnswer,
+  ActionClass,
   ApprovalRequest,
   Approver,
   Decision,
+  DENIED_IN_SUBAGENT,
   DENIED_WHEN_SCHEDULED,
   GovernorDenied,
   NEVER_AUTO_WHEN_SCHEDULED,
   TAINT_SENSITIVE,
+  SubagentRef,
   Verdict,
 } from './types';
 
@@ -24,11 +28,14 @@ export interface RunContext {
   triggerAt?: string;
   /** Epoch ms after which every governed action in this run is denied (scheduled.maxRunSeconds). */
   deadlineAt?: number;
+  /** Set for a sub-agent run: who it is, and the scope its parent granted. The scope can only remove authority. */
+  subagent?: SubagentRef;
+  scope?: SubagentScope;
 }
 
 export interface GovernorOptions {
   policy: Policy;
-  audit: AuditLog;
+  audit: AuditSink;
   taint: TaintTracker;
   /** No approver = non-interactive: every `ask` becomes a deny. */
   approver?: Approver;
@@ -42,12 +49,14 @@ export interface GovernorOptions {
  */
 export class Governor {
   readonly policy: Policy;
-  readonly audit: AuditLog;
+  readonly audit: AuditSink;
   readonly taint: TaintTracker;
   private approver?: Approver;
   private readonly spendAuthority?: SpendAuthority;
   private readonly rail: PaymentRail;
   private ctx?: RunContext;
+  private actionsAttempted = 0;
+  private scopeClassSet?: Set<ActionClass>;
 
   constructor(opts: GovernorOptions) {
     this.policy = opts.policy;
@@ -64,6 +73,13 @@ export class Governor {
 
   setRunContext(ctx: RunContext | undefined) {
     this.ctx = ctx;
+    this.scopeClassSet = ctx?.scope ? scopeClasses(ctx.scope) : undefined;
+    this.actionsAttempted = 0;
+  }
+  /** Governed actions a sub-agent run may still attempt (null = no limit). */
+  get actionsRemaining(): number | null {
+    const max = this.ctx?.scope?.maxActions;
+    return max === undefined || max === null ? null : Math.max(0, max - this.actionsAttempted);
   }
   get runContext(): RunContext | undefined {
     return this.ctx;
@@ -104,6 +120,26 @@ export class Governor {
     if (scheduled && this.ctx?.deadlineAt !== undefined && Date.now() > this.ctx.deadlineAt) {
       this.audit.append('decision.request', this.auditAction(id, action, provenance, 'deny', false, ev));
       return this.finish(action, decide(false, 'scheduled-policy', 'the scheduled run exceeded its wall-clock limit (scheduled.maxRunSeconds)', false));
+    }
+
+    // 1c. Sub-agent runs: the scope its parent granted is checked FIRST and can only remove authority. Everything below
+    //     (policy, taint, approval, spend authority) still applies, so the result is the INTERSECTION of both.
+    const sub = this.ctx?.subagent;
+    if (sub) {
+      let why: string | undefined;
+      if (DENIED_IN_SUBAGENT.has(action.class)) why = `${action.class} is never allowed inside a sub-agent`;
+      else if (this.ctx?.deadlineAt !== undefined && Date.now() > this.ctx.deadlineAt) why = "the sub-agent exceeded its wall-clock deadline (shorter than its parent's)";
+      else if (this.ctx?.scope) {
+        why = scopeDenies(this.ctx.scope, action, this.scopeClassSet);
+        if (!why && action.class !== 'exec') {
+          if (this.ctx.scope.maxActions !== null && this.actionsAttempted >= this.ctx.scope.maxActions) why = `the sub-agent used its ${this.ctx.scope.maxActions} allowed governed actions`;
+          else this.actionsAttempted++;
+        }
+      } else why = 'sub-agent run without a scope (refusing: fail closed)';
+      if (why) {
+        this.audit.append('decision.request', this.auditAction(id, action, provenance, 'deny', false, ev));
+        return this.finish(action, decide(false, 'subagent-scope', why, false));
+      }
     }
 
     // 2. Taint escalation: policy can never auto-allow a tainted sensitive action.
@@ -172,6 +208,7 @@ export class Governor {
       escalatedByTaint: escalated,
       expiresAt: Date.now() + timeoutMs,
       scheduled: scheduledInfo,
+      subagent: sub,
     };
     const { answer, error, timedOut } = await this.askWithTimeout(req, timeoutMs);
     if (error) return this.finish(action, decide(false, 'approver-error', `approver failed: ${error}`, escalated));
@@ -270,6 +307,7 @@ export class Governor {
       tainted: p.tainted,
       taintSources: p.sources.map((s) => `${s.kind}:${s.ref}`),
       origin: this.ctx?.origin,
+      subagent: this.ctx?.subagent ? { runId: this.ctx.subagent.runId, parentRunId: this.ctx.subagent.parentRunId, chain: this.ctx.subagent.chain, depth: this.ctx.subagent.depth } : undefined,
       jobId: this.ctx?.jobId,
       triggerAt: this.ctx?.triggerAt,
     };

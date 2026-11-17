@@ -32,6 +32,8 @@ const MICRO = 1_000_000;
  */
 export class LlmBudget {
   private runMicro = 0;
+  /** Microcents handed to still-open sub-agent slices: unavailable to this run until the slice is closed. */
+  private carvedMicro = 0;
   constructor(
     private readonly perRunCents: number,
     private readonly perDayCents: number,
@@ -53,7 +55,7 @@ export class LlmBudget {
   }
 
   assertCanSpend(): void {
-    if (this.runMicro >= this.perRunCents * MICRO) throw new BudgetExceeded('run', `per-run LLM budget of ${this.perRunCents} cents exhausted`);
+    if (this.runMicro + this.carvedMicro >= this.perRunCents * MICRO) throw new BudgetExceeded('run', `per-run LLM budget of ${this.perRunCents} cents exhausted`);
     if (this.readDay().micro >= this.perDayCents * MICRO) throw new BudgetExceeded('day', `per-day LLM budget of ${this.perDayCents} cents exhausted`);
   }
 
@@ -65,6 +67,37 @@ export class LlmBudget {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       fs.writeFileSync(this.file, JSON.stringify({ date: d.date, micro: d.micro + microcents }));
     }
+  }
+
+  /** Whole cents that can still be carved into a sub-agent's budget right now. */
+  get availableRunCents(): number {
+    return Math.max(0, Math.floor((this.perRunCents * MICRO - this.runMicro - this.carvedMicro) / MICRO));
+  }
+
+  /**
+   * Carve `cents` of this run's remaining budget into a separate budget for a sub-agent. The slice is held (unavailable to
+   * this run and to other slices) until close(); close() adds what the child ACTUALLY spent to this run and gives the rest
+   * back, so concurrent children cannot jointly exceed the parent. The per-day total is shared: the child writes the same
+   * file, and close() does not write it again. `consumeAll` (a child that timed out and may still be mid-call) charges the
+   * whole slice.
+   */
+  carve(cents: number): { budget: LlmBudget; close: (consumeAll?: boolean) => { spentMicro: number } } {
+    if (!Number.isSafeInteger(cents) || cents <= 0) throw new Error('invalid LLM slice');
+    if (cents > this.availableRunCents) throw new BudgetExceeded('run', `cannot carve ${cents} cents: only ${this.availableRunCents} are left in this run's budget`);
+    this.carvedMicro += cents * MICRO;
+    const budget = new LlmBudget(cents, this.perDayCents, this.file, this.today);
+    let closedSpent: number | undefined;
+    return {
+      budget,
+      close: (consumeAll = false) => {
+        if (closedSpent === undefined) {
+          closedSpent = consumeAll ? Math.max(budget.runMicro, cents * MICRO) : budget.runMicro;
+          this.carvedMicro -= cents * MICRO;
+          this.runMicro += closedSpent;
+        }
+        return { spentMicro: closedSpent };
+      },
+    };
   }
 
   newRun(): void {

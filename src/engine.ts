@@ -1,19 +1,21 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
+import { randomUUID } from 'node:crypto';
 import { Broker } from './broker';
-import { AuditLog } from './governance/audit';
+import { AuditLog, AuditSink, scopedAudit } from './governance/audit';
 import { BudgetExceeded, LlmBudget, costMicrocents } from './governance/budget';
 import { sha256Hex } from './governance/canonical';
 import { Governor } from './governance/governor';
 import { Policy, defaultPolicy } from './governance/policy';
+import { ParentLimits, SpawnRequestSchema, SpendPool, SpendSlice, SubagentRejected, SubagentScope, attenuate, rootScope, scopeSha256, scopeSummary } from './governance/subagent';
 import { Ed25519Signer, Signer } from './governance/signer';
 import { MnemoPaySpendAuthority, NoPaymentRail, PaymentRail, SpendAuthority } from './governance/spend';
 import { TaintTracker, TaintedFileStore } from './governance/taint';
-import { Action, Approver, Decision, GovernorDenied } from './governance/types';
+import { Action, Approver, Decision, GovernorDenied, SubagentRef } from './governance/types';
 import type { ChatTurn, LLM, LlmResult } from './llm/types';
 import { CognitiveMemory, MemoryVerifyReport } from './memory/CognitiveMemory';
-import type { RunResult, Sandbox } from './sandbox/types';
+import { DEFAULT_TOOL_NAMES, type RunResult, type Sandbox } from './sandbox/types';
 import { SelectingSandbox } from './sandbox/select';
 import type { ProbeReport } from './sandbox/probe';
 import { SkillStore, sanitizeSkillName } from './skills/SkillStore';
@@ -78,6 +80,30 @@ interface RunCtx {
   budget: LlmBudget;
   history: ChatTurn[];
   scheduled?: { jobId: string };
+  /** Identifies this run in the audit log; a sub-agent's parent id points at it. New for every goal. */
+  runId: string;
+  /** Where this run's spend slices are carved from. */
+  pool: SpendPool;
+  /** Children this run has started (reset for every goal). */
+  spawned: { total: number; live: number };
+  audit: AuditSink;
+  /** Present only for a sub-agent run. */
+  sub?: { ref: SubagentRef; scope: SubagentScope };
+}
+
+/** What a parent's code gets back from tools.spawnAgent. Everything in it is untrusted data. */
+export interface SubagentResult {
+  untrusted: true;
+  childId: string;
+  ok: boolean;
+  result?: unknown;
+  resultTruncated?: boolean;
+  stdout?: string;
+  error?: string;
+  deniedBy?: string;
+  childTainted: boolean;
+  llmCostCents: number;
+  spentCents: number;
 }
 
 /** The goal text a heartbeat job runs: the agent speaks first only when it has something worth saying. */
@@ -107,7 +133,7 @@ export class StarClawEngine {
   private readonly browserDiscoveryPath?: string;
   private readonly notifyLimiter: NotifyLimiter;
   private readonly taintedFiles: TaintedFileStore;
-  private readonly spendAuthority: SpendAuthority;
+  private readonly spendAuthority: SpendPool;
   private readonly rail: PaymentRail;
   private approver?: Approver;
   private history: ChatTurn[] = [];
@@ -128,7 +154,7 @@ export class StarClawEngine {
     const signer = o.signer ?? Ed25519Signer.loadOrCreate(this.stateDir);
     this.audit = new AuditLog(path.join(this.stateDir, 'audit.jsonl'), signer);
     const taint = new TaintTracker((s) => this.audit.append('taint.mark', { kind: s.kind, ref: s.ref }));
-    this.spendAuthority = new MnemoPaySpendAuthority(this.id, this.policy.spend, { ledgerFile: path.join(this.stateDir, 'spend-ledger.json') });
+    this.spendAuthority = new SpendPool(new MnemoPaySpendAuthority(this.id, this.policy.spend, { ledgerFile: path.join(this.stateDir, 'spend-ledger.json') }), this.policy.spend.maxTotalCents);
     this.rail = o.rail ?? new NoPaymentRail();
     this.approver = o.approver;
     this.notifier = o.notifier;
@@ -165,13 +191,16 @@ export class StarClawEngine {
         policy: this.policy.shell,
         runtime: this.policy.sandbox.containerRuntime,
       });
-    this.broker = this.makeBroker(this.governor);
-    this.main = { governor: this.governor, broker: this.broker, budget: this.budget, history: this.history };
+    this.main = { governor: this.governor, broker: undefined as unknown as Broker, budget: this.budget, history: this.history, runId: randomUUID(), pool: this.spendAuthority, spawned: { total: 0, live: 0 }, audit: this.audit };
+    this.broker = this.makeBroker(this.governor, () => this.main);
+    this.main.broker = this.broker;
     this.audit.append('engine.start', { id: this.id, node: process.version, platform: process.platform, learnSkills: this.learnSkills, approver: o.approver?.name ?? 'none', notifier: o.notifier?.name ?? 'none' });
   }
 
-  private makeBroker(governor: Governor): Broker {
+  private makeBroker(governor: Governor, ctx: () => RunCtx, scope?: SubagentScope): Broker {
     return new Broker({
+      scope,
+      spawn: (args) => this.spawnSubagent(ctx(), args),
       governor,
       workspaceDir: this.workspaceDir,
       stateDir: this.stateDir,
@@ -196,7 +225,7 @@ export class StarClawEngine {
   setNotifier(n: OwnerNotifier | undefined) {
     this.notifier = n;
     // The main broker was built before the notifier existed: rebuild it with the same governor.
-    this.broker = this.makeBroker(this.governor);
+    this.broker = this.makeBroker(this.governor, () => this.main);
     this.main.broker = this.broker;
   }
 
@@ -243,16 +272,19 @@ export class StarClawEngine {
 
   private async llmCall<T>(ctx: RunCtx, fn: () => Promise<LlmResult<T>>, what: string): Promise<T> {
     const dl = ctx.governor.runContext?.deadlineAt;
-    if (dl !== undefined && Date.now() > dl) throw new Error('the scheduled run exceeded its wall-clock limit (scheduled.maxRunSeconds)');
+    if (dl !== undefined && Date.now() > dl) throw new Error(ctx.sub ? 'the sub-agent exceeded its wall-clock deadline' : 'the scheduled run exceeded its wall-clock limit (scheduled.maxRunSeconds)');
     ctx.budget.assertCanSpend();
     const r = await fn();
     const micro = costMicrocents(r.usage, r.price);
     ctx.budget.record(micro);
-    this.audit.append('llm.usage', { what, jobId: ctx.scheduled?.jobId, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, microcents: micro, priceAssumed: r.priceAssumed ?? false, runCentsCeil: ctx.budget.runCentsCeil, dayCentsCeil: ctx.budget.dayCentsCeil });
+    ctx.audit.append('llm.usage', { what, jobId: ctx.scheduled?.jobId, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, microcents: micro, priceAssumed: r.priceAssumed ?? false, runCentsCeil: ctx.budget.runCentsCeil, dayCentsCeil: ctx.budget.dayCentsCeil });
     return r.value;
   }
 
-  private runSandbox(code: string, broker: Broker): Promise<RunResult> {
+  private runSandbox(code: string, broker: Broker, unlocked = false): Promise<RunResult> {
+    // A sub-agent runs INSIDE its parent's brokered call, so the parent holds the lock: waiting for it would deadlock.
+    // Sub-agent runs are capped by subagents.maxConcurrent instead.
+    if (unlocked) return this.sandbox.run(code, (call) => broker.handle(call));
     const next = this.sandboxLock.then(() => this.sandbox.run(code, (call) => broker.handle(call)));
     this.sandboxLock = next.catch(() => {});
     return next;
@@ -274,11 +306,16 @@ export class StarClawEngine {
     if (job.createdTainted) taint.mark('scheduled-job', job.id);
     const ctx: RunCtx = {
       governor,
-      broker: this.makeBroker(governor),
+      broker: undefined as unknown as Broker,
       budget: new LlmBudget(this.policy.llmBudget.perRunCents, this.policy.llmBudget.perDayCents, path.join(this.stateDir, 'llm-budget.json')),
       history: [],
       scheduled: { jobId: job.id },
+      runId: randomUUID(),
+      pool: this.spendAuthority,
+      spawned: { total: 0, live: 0 },
+      audit: this.audit,
     };
+    ctx.broker = this.makeBroker(governor, () => ctx);
     const goal = job.kind === 'heartbeat' ? heartbeatGoal(job.goal) : job.goal;
     const r = await this.runGoal(ctx, goal, { origin: 'owner', originRef: `job:${job.id}` });
     if (job.notify === 'summary' && this.notifier) {
@@ -292,31 +329,217 @@ export class StarClawEngine {
     return r;
   }
 
+  // ---- governed sub-agents -----------------------------------------------------------------------------------------
+
+  /** What this run can hand to a child right now: its own scope plus live availability. */
+  private parentLimits(parent: RunCtx): ParentLimits {
+    return {
+      scope: parent.sub?.scope ?? rootScope(DEFAULT_TOOL_NAMES),
+      spendAvailableCents: parent.pool.availableCents,
+      llmAvailableCents: parent.budget.availableRunCents,
+      actionsRemaining: parent.governor.actionsRemaining,
+      now: Date.now(),
+      ttlCeilingSeconds: this.policy.sandbox.timeoutSeconds,
+    };
+  }
+
+  /**
+   * tools.spawnAgent. The child is a separate run (own Governor, taint, budget, history, broker) whose authority is the
+   * parent's INTERSECTED with what the parent asked for: a request that asks for more than the parent holds is rejected
+   * before a child exists. Order of events, all in the one audit chain: rejection or the spawn decision (decision.request/
+   * decision.result, then subagent.spawn) BEFORE the child's first record; the child's records carry runId/parentRunId;
+   * subagent.result AFTER. The answer is untrusted data and taints the parent's session.
+   */
+  private async spawnSubagent(parent: RunCtx, raw: unknown): Promise<SubagentResult> {
+    const pol = this.policy.subagents;
+    const gov = parent.governor;
+    const depth = (parent.sub?.scope.depth ?? 0) + 1;
+    const reject = (reasons: string[]): never => {
+      parent.audit.append('subagent.rejected', { spawnerRunId: parent.runId, depth, reasons: reasons.slice(0, 20).map((r) => r.slice(0, 300)) });
+      throw new SubagentRejected(reasons);
+    };
+    const limitReasons = (): string[] => {
+      const why: string[] = [];
+      if (parent.spawned.total >= pol.maxTotalPerRun) why.push(`this run already started ${parent.spawned.total} sub-agents (subagents.maxTotalPerRun = ${pol.maxTotalPerRun})`);
+      if (parent.spawned.live >= pol.maxConcurrent) why.push(`${parent.spawned.live} sub-agents are already running (subagents.maxConcurrent = ${pol.maxConcurrent})`);
+      return why;
+    };
+
+    if (!pol.enabled) return reject(['sub-agents are disabled (policy subagents.enabled = false)']);
+    const parsed = SpawnRequestSchema.safeParse(raw);
+    if (!parsed.success) return reject(['malformed request: ' + parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')]);
+    const req = parsed.data;
+    const early = limitReasons();
+    if (early.length) return reject(early);
+
+    const attenuateNow = (): SubagentScope => {
+      try {
+        return attenuate(this.parentLimits(parent), req, pol);
+      } catch (e) {
+        if (e instanceof SubagentRejected) return reject(e.reasons);
+        throw e;
+      }
+    };
+    const approvedScope = attenuateNow();
+
+    const childId = randomUUID();
+    const chain = [...(parent.sub?.ref.chain ?? [parent.runId]), childId];
+    const action: Action = {
+      class: 'agent.spawn',
+      target: `depth-${approvedScope.depth}`,
+      summary: `Start a SUB-AGENT (depth ${approvedScope.depth}; chain ${chain.join(' > ')}; tools: ${approvedScope.tools.join(', ')}; spend ${approvedScope.spendCents}c; LLM ${approvedScope.llmCents}c): ${req.goal.replace(/\s+/g, ' ').slice(0, 150)}`.slice(0, 400),
+      detail: JSON.stringify({ childId, parentRunId: parent.runId, chain, goal: req.goal, scope: scopeSummary(approvedScope) }, null, 2),
+    };
+    const d = await gov.authorize(action);
+    if (!d.allowed) throw new GovernorDenied(d, action);
+
+    // After the (possibly long) approval: the clock starts now, availability may have changed. Re-derive from the SAME request;
+    // the result may be smaller than what was approved, never larger. Everything from here to the carve is synchronous, so
+    // concurrent spawns cannot all pass the same check.
+    const scope = attenuateNow();
+    if (scope.llmCents > approvedScope.llmCents || (scope.maxActions ?? 0) > (approvedScope.maxActions ?? 0) || scope.spendCents !== approvedScope.spendCents || scope.tools.join() !== approvedScope.tools.join()) {
+      return reject(['the request resolved to a different scope after approval; nothing was started']);
+    }
+    const late = limitReasons();
+    if (late.length) return reject(late);
+    let spendSlice: SpendSlice | undefined;
+    let llmSlice: ReturnType<LlmBudget['carve']> | undefined;
+    try {
+      spendSlice = parent.pool.carve(scope.spendCents, Math.min(gov.policy.spend.maxPerActionCents, scope.spendCents));
+      llmSlice = parent.budget.carve(scope.llmCents);
+    } catch (e: any) {
+      spendSlice?.close();
+      return reject([String(e?.message ?? e)]);
+    }
+    parent.spawned.total++;
+    parent.spawned.live++;
+
+    // The spawn is on the record BEFORE the child exists.
+    const ref: SubagentRef = { runId: childId, parentRunId: parent.runId, chain, depth: scope.depth, goal: req.goal.slice(0, 2000) };
+    parent.audit.append('subagent.spawn', {
+      childId,
+      spawnerRunId: parent.runId,
+      chain,
+      depth: scope.depth,
+      decisionId: d.id,
+      goal: req.goal.slice(0, 2000),
+      scope: scopeSummary(scope),
+      scopeSha256: scopeSha256(scope),
+      parentTainted: gov.taint.tainted,
+      llmSliceCents: scope.llmCents,
+      spendSliceCents: scope.spendCents,
+      liveChildren: parent.spawned.live,
+      totalChildren: parent.spawned.total,
+    });
+
+    const audit = scopedAudit(this.audit, { runId: childId, parentRunId: parent.runId, subagentDepth: scope.depth });
+    const taint = new TaintTracker((s) => audit.append('taint.mark', { kind: s.kind, ref: s.ref }));
+    taint.inherit(gov.taint.provenance());
+    const childPolicy: Policy = structuredClone(gov.policy);
+    childPolicy.spend = { ...childPolicy.spend, maxTotalCents: scope.spendCents, maxPerActionCents: Math.min(childPolicy.spend.maxPerActionCents, scope.spendCents) };
+    childPolicy.llmBudget = { ...childPolicy.llmBudget, perRunCents: scope.llmCents };
+    const childPool = new SpendPool(spendSlice, scope.spendCents);
+    const cgov = new Governor({ policy: childPolicy, audit, taint, approver: this.approver, spendAuthority: childPool, rail: this.rail });
+    const pctx = gov.runContext;
+    cgov.setRunContext({ origin: pctx?.origin === 'scheduled' ? 'scheduled' : 'owner', jobId: pctx?.jobId, triggerAt: pctx?.triggerAt, deadlineAt: scope.deadlineAt, subagent: ref, scope });
+    const child: RunCtx = { governor: cgov, broker: undefined as unknown as Broker, budget: llmSlice.budget, history: [], scheduled: parent.scheduled, runId: childId, pool: childPool, spawned: { total: 0, live: 0 }, audit, sub: { ref, scope } };
+    child.broker = this.makeBroker(cgov, () => child, scope);
+
+    let res: GoalResult;
+    let timedOut = false;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const wait = Math.max(1, (scope.deadlineAt ?? Date.now()) - Date.now()) + 2000;
+      res = await Promise.race([
+        this.runGoal(child, req.goal, { origin: 'owner', originRef: `subagent:${childId}` }),
+        new Promise<GoalResult>((resolve) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            resolve({ success: false, kind: 'task', error: 'the sub-agent did not finish before its wall-clock deadline', tainted: cgov.taint.tainted, llmCostCentsCeil: llmSlice!.budget.runCentsCeil });
+          }, wait);
+          timer.unref?.();
+        }),
+      ]);
+    } catch (e: any) {
+      res = { success: false, kind: 'task', error: String(e?.message ?? e).slice(0, 500), tainted: cgov.taint.tainted, llmCostCentsCeil: llmSlice.budget.runCentsCeil };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    // Unspent budget goes back to the parent; a child that was abandoned mid-call is charged its whole LLM slice.
+    const llmSpent = llmSlice.close(timedOut);
+    const spend = spendSlice.close();
+    parent.spawned.live--;
+
+    const max = pol.maxResultChars;
+    const resJson = JSON.stringify(res.result ?? null) ?? 'null';
+    const resultTruncated = resJson.length > max;
+    const out: SubagentResult = {
+      untrusted: true,
+      childId,
+      ok: res.success,
+      result: resultTruncated ? resJson.slice(0, max) : res.result ?? null,
+      ...(resultTruncated ? { resultTruncated: true } : {}),
+      stdout: (res.stdout ?? '').slice(0, max),
+      error: res.error?.slice(0, 500),
+      deniedBy: res.denied?.by,
+      childTainted: res.tainted,
+      llmCostCents: Math.ceil(llmSpent.spentMicro / 1_000_000),
+      spentCents: spend.spentCents,
+    };
+    parent.audit.append('subagent.result', {
+      childId,
+      spawnerRunId: parent.runId,
+      chain,
+      ok: out.ok,
+      error: out.error,
+      deniedBy: out.deniedBy,
+      timedOut,
+      childTainted: out.childTainted,
+      llmMicrocents: llmSpent.spentMicro,
+      llmCostCents: out.llmCostCents,
+      spentCents: spend.spentCents,
+      returnedSpendCents: spend.returnedCents,
+      resultSha256: sha256Hex(JSON.stringify(out.result ?? null) + '\n' + (out.stdout ?? '')),
+      resultTruncated,
+      liveChildren: parent.spawned.live,
+    });
+    // Whatever the child produced is data from a run that may have been steered by hostile content: it taints the parent,
+    // clean child or not, so a hijacked child cannot hand its parent anything that skips the parent's own approvals.
+    gov.taint.mark('subagent-result', childId);
+    return out;
+  }
+
   private async runGoal(ctx: RunCtx, goal: string, o: GoalOptions): Promise<GoalResult> {
     const log = (m: string) => (o.onLog ? o.onLog(m) : undefined);
     const gov = ctx.governor;
     const scheduled = !!ctx.scheduled;
+    const sub = ctx.sub;
+    if (!sub) {
+      ctx.runId = randomUUID();
+      ctx.spawned = { total: 0, live: 0 };
+    }
     ctx.budget.newRun();
     const origin = o.origin ?? 'owner';
     if (origin !== 'owner') gov.taint.mark('non-owner-message', o.originRef ?? 'non-owner');
-    this.audit.append('goal.received', { origin: scheduled ? 'scheduled' : origin, originRef: o.originRef, jobId: ctx.scheduled?.jobId, goal: goal.slice(0, 2000) });
+    ctx.audit.append('goal.received', { origin: scheduled ? 'scheduled' : origin, originRef: o.originRef, jobId: ctx.scheduled?.jobId, runId: ctx.runId, goal: goal.slice(0, 2000) });
     const fail = (kind: GoalResult['kind'], error: string, extra: Partial<GoalResult> = {}): GoalResult => {
-      this.audit.append('goal.failed', { error: error.slice(0, 500), denied: extra.denied?.by, jobId: ctx.scheduled?.jobId });
+      ctx.audit.append('goal.failed', { error: error.slice(0, 500), denied: extra.denied?.by, jobId: ctx.scheduled?.jobId });
       return { success: false, kind, error, tainted: gov.taint.tainted, llmCostCentsCeil: ctx.budget.runCentsCeil, ...extra };
     };
     try {
       ctx.history.push({ role: 'user', content: goal });
       // Unattended jobs are always tasks: a "conversation" reply would go nowhere.
-      const intent = scheduled ? 'task' : await this.llmCall(ctx, () => this.llm.classifyIntent(goal), 'classify');
+      const intent = scheduled || sub ? 'task' : await this.llmCall(ctx, () => this.llm.classifyIntent(goal), 'classify');
       if (intent === 'conversation') {
         const reply = await this.llmCall(ctx, () => this.llm.converse(goal, ctx.history.slice(0, -1)), 'converse');
         ctx.history.push({ role: 'assistant', content: reply });
-        this.audit.append('goal.completed', { kind: 'conversation' });
+        ctx.audit.append('goal.completed', { kind: 'conversation' });
         return { success: true, kind: 'conversation', reply, tainted: gov.taint.tainted, llmCostCentsCeil: ctx.budget.runCentsCeil };
       }
 
       // 1. Recall (verified). Tainted memories taint the session.
-      const memories = this.memory.search(goal, 3);
+      // A sub-agent never reads the parent's memory (memories are the owner's, and may be tainted): it gets none.
+      const memories = sub ? [] : this.memory.search(goal, 3);
       for (const m of memories) if (m.tainted) gov.taint.mark('tainted-memory', m.id);
       const memoryContext = memories.filter((m) => m.kind === 'note').map((m) => `- ${m.content}`).join('\n');
 
@@ -330,12 +553,12 @@ export class StarClawEngine {
           reusedId = skillMem.id;
           log(`Reusing verified skill ${skillMem.meta.name}`);
         } catch (e: any) {
-          this.audit.append('skill.rejected', { name: skillMem.meta.name, error: e.message });
+          ctx.audit.append('skill.rejected', { name: skillMem.meta.name, error: e.message });
           log(`Skill rejected: ${e.message}`);
         }
       }
       if (!code) {
-        code = await this.llmCall(ctx, () => this.llm.generateCode({ goal, memoryContext, history: ctx.history.slice(0, -1), tainted: gov.taint.tainted }), 'codegen');
+        code = await this.llmCall(ctx, () => this.llm.generateCode({ goal, memoryContext, history: ctx.history.slice(0, -1), tainted: gov.taint.tainted, subagent: sub && { depth: sub.scope.depth, tools: [...sub.scope.tools], domains: sub.scope.domains === 'any' ? 'any' : [...sub.scope.domains], readPaths: [...sub.scope.readPaths], writePaths: [...sub.scope.writePaths], spendCents: sub.scope.spendCents, maxActions: sub.scope.maxActions } }), 'codegen');
         code = await this.validateAndHeal(ctx, goal, code);
       }
 
@@ -356,9 +579,9 @@ export class StarClawEngine {
         return fail('task', `execution not permitted: ${d.reason}`, { denied: d });
       }
 
-      this.audit.append('exec.start', { decisionId: d.id, codeSha256: codeHash, tainted: gov.taint.tainted, jobId: ctx.scheduled?.jobId });
-      const run: RunResult = await this.runSandbox(code, ctx.broker);
-      this.audit.append('exec.result', {
+      ctx.audit.append('exec.start', { decisionId: d.id, codeSha256: codeHash, tainted: gov.taint.tainted, jobId: ctx.scheduled?.jobId });
+      const run: RunResult = await this.runSandbox(code, ctx.broker, !!sub);
+      ctx.audit.append('exec.result', {
         decisionId: d.id,
         codeSha256: codeHash,
         ok: run.ok,
@@ -375,14 +598,17 @@ export class StarClawEngine {
       }
 
       // 5. Persist what was learned (each write is itself governed; denial is not a failure of the goal).
-      const content = `Completed: ${goal.slice(0, 300)}`;
-      const memAction: Action = { class: 'memory.write', target: 'memory.db', summary: `Remember: ${content}`, detail: content };
-      const md = await gov.authorize(memAction);
-      if (md.allowed) this.memory.remember(content, { tainted: gov.taint.tainted });
-      if (this.learnSkills && !reusedId && !scheduled) await this.maybeSaveSkill(gov, goal, code, codeHash);
+      // (A sub-agent writes no memory and saves no skill: its answer goes to its parent, which decides what to keep.)
+      if (!sub) {
+        const content = `Completed: ${goal.slice(0, 300)}`;
+        const memAction: Action = { class: 'memory.write', target: 'memory.db', summary: `Remember: ${content}`, detail: content };
+        const md = await gov.authorize(memAction);
+        if (md.allowed) this.memory.remember(content, { tainted: gov.taint.tainted });
+      }
+      if (this.learnSkills && !reusedId && !scheduled && !sub) await this.maybeSaveSkill(gov, goal, code, codeHash);
 
       ctx.history.push({ role: 'assistant', content: `Ran code (sha256 ${codeHash.slice(0, 12)}); result: ${JSON.stringify(run.value ?? null).slice(0, 300)}` });
-      this.audit.append('goal.completed', { kind: 'task', tainted: gov.taint.tainted, jobId: ctx.scheduled?.jobId });
+      ctx.audit.append('goal.completed', { kind: 'task', tainted: gov.taint.tainted, jobId: ctx.scheduled?.jobId });
       return { success: true, kind: 'task', result: run.value, stdout: run.stdout, tainted: gov.taint.tainted, llmCostCentsCeil: ctx.budget.runCentsCeil };
     } catch (e: any) {
       if (e instanceof GovernorDenied) return fail('task', e.message, { denied: e.decision });
