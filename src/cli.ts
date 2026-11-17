@@ -13,6 +13,9 @@ import { buildImage, cleanContainers, defaultImageTag, imageStatus, listSandboxC
 import { StarClawEngine } from './engine';
 import { runDaemon } from './daemon';
 import { browserStatus } from './browser/status';
+import { discordStatus, listenerStatus, slackStatus } from './channels/status';
+import { resolveDiscordConfig } from './channels/config';
+import { FetchDiscordApi, registerDiscordCommand } from './channels/discord';
 import { buildShellImage, cleanShellContainers, defaultShellImageTag, listShellContainers, shellImageStatus } from './shell/shellImage';
 
 const VERSION: string = (() => {
@@ -197,6 +200,13 @@ program
       const bs = await browserStatus(policy);
       console.log(bs.line);
       for (const w of bs.warnings) console.log('  WARNING: ' + w);
+      let channelsBroken = false;
+      for (const cs of [slackStatus(policy, process.env), discordStatus(policy, process.env), listenerStatus(policy)]) {
+        console.log(cs.line);
+        for (const w of cs.warnings) console.log('  WARNING: ' + w);
+        channelsBroken = channelsBroken || cs.broken;
+      }
+      if (channelsBroken) console.log('  A channel is enabled but misconfigured: `starclaw daemon` will refuse to start until that is fixed.');
       const layers: Array<['container' | 'process', Sandbox]> = [['container', sb.container], ['process', sb.proc]];
       for (const [name, layer] of layers) {
         try {
@@ -348,8 +358,58 @@ common(scheduleCmd.command('resume <id>')).description('resume a paused job (cle
   })(),
 );
 
+// ---- Slack / Discord (webhook channels; configured in the policy, secrets only from the environment) ----------------
+
+const policyOpt = (c: Command) => c.option('--policy <file>', 'policy JSON file');
+const slackCmd = program.command('slack').description('Slack channel (goals + approvals + owner notifications over a signed webhook)');
+policyOpt(slackCmd.command('status'))
+  .description('check the Slack policy block and environment (prints variable names and set/NOT set, never values); exit 1 if enabled but misconfigured')
+  .action((o: { policy?: string }) => {
+    try {
+      const policy = loadPolicy(o.policy);
+      const s = slackStatus(policy, process.env);
+      console.log(s.line);
+      for (const w of s.warnings) console.log('  WARNING: ' + w);
+      console.log(listenerStatus(policy).line);
+      console.log('Slack app needs: bot scopes chat:write + im:history; event subscription message.im -> <your tunnel>/slack/events; interactivity -> <your tunnel>/slack/interactions.');
+      process.exit(s.broken ? 1 : 0);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+const discordCmd = program.command('discord').description('Discord channel (/starclaw slash command + approval buttons over a signed webhook)');
+policyOpt(discordCmd.command('status'))
+  .description('check the Discord policy block and environment (names and set/NOT set only); exit 1 if enabled but misconfigured')
+  .action((o: { policy?: string }) => {
+    try {
+      const policy = loadPolicy(o.policy);
+      const s = discordStatus(policy, process.env);
+      console.log(s.line);
+      for (const w of s.warnings) console.log('  WARNING: ' + w);
+      console.log(listenerStatus(policy).line);
+      console.log('Discord app needs: Interactions Endpoint URL -> <your tunnel>/discord/interactions; then run: starclaw discord register');
+      process.exit(s.broken ? 1 : 0);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+policyOpt(discordCmd.command('register'))
+  .description('register the /starclaw slash command with Discord (contacts discord.com using the bot token from the environment)')
+  .option('--guild <id>', 'register in one server only (appears instantly) instead of globally')
+  .action(async (o: { policy?: string; guild?: string }) => {
+    try {
+      const policy = loadPolicy(o.policy);
+      if (!policy.discord.enabled) throw new Error('discord.enabled is false in the policy');
+      const cfg = resolveDiscordConfig(policy, process.env);
+      const n = await registerDiscordCommand(new FetchDiscordApi(cfg.botToken), cfg.applicationId, o.guild);
+      console.log(`registered ${n} command(s) ${o.guild ? 'in guild ' + o.guild : 'globally'}`);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+
 common(program.command('daemon'))
-  .description('long-running process: Telegram gateway (goals + async approvals) and the scheduler. Needs TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_ID.')
+  .description('long-running process: Telegram gateway (goals + async approvals), Slack/Discord webhook channels when enabled in the policy, and the scheduler. Telegram needs TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_ID.')
   .option('--no-telegram', 'run without Telegram: jobs run but every approval is denied and nothing can message you')
   .action(async (o: CommonCliOptions & { telegram?: boolean }) => {
     try {

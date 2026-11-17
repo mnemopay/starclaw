@@ -5,7 +5,7 @@ runs that code in an isolated sandbox (a locked-down Docker container, with Node
 engine** that can allow, ask a human, or deny, and that writes a **signed, hash-chained audit record before
 anything runs**.
 
-> **Status: `2.0.0-alpha.4` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
+> **Status: `2.0.0-alpha.5` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
 > npm `next` tag; not yet recommended for customers.** See [Known limits](#known-limits) and
 > [SECURITY.md](SECURITY.md) first. Tested on Windows 11 x64 with Node 25.9.0 only. The old `starclaw@1.0.0` on npm
 > is deprecated and broken: do not use it.
@@ -44,7 +44,27 @@ Other front ends (both fail closed without credentials):
 | Command | Needs | Notes |
 |---|---|---|
 | `starclaw-telegram` | `TELEGRAM_BOT_TOKEN`, numeric `TELEGRAM_OWNER_ID` | Approve/Deny inline buttons, owner only, timeout = deny. Messages from others are ignored, or (with `TELEGRAM_ALLOW_PUBLIC=1`) run as tainted non-owner goals. |
+| `starclaw daemon` + policy `slack.enabled` | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_OWNER_ID` (names configurable in the policy) | Owner-only goals by DM, Approve/Deny buttons, `notifyOwner`. Signed webhook on `127.0.0.1:8787` (you run the tunnel). See [Slack and Discord](#slack-and-discord). |
+| `starclaw daemon` + policy `discord.enabled` | `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, `DISCORD_OWNER_ID` | `/starclaw` slash command (owner only), Approve/Deny buttons, `notifyOwner`. Same listener. |
 | `starclaw-server` | `STARCLAW_API_KEY` (16+ chars) | HTTP API + small web console on `127.0.0.1:3000`. Every `/api` route needs `Authorization: Bearer <key>`. No TLS: put it behind your own proxy if you expose it. |
+
+## Slack and Discord
+
+Both are **off by default** and are configured in the policy; secrets and ids are read only from the environment variables the policy names:
+
+```json
+{ "version": 1,
+  "slack":    { "enabled": true },
+  "discord":  { "enabled": false },
+  "channels": { "port": 8787, "ownerChannel": "slack" } }
+```
+
+* `starclaw slack status` / `starclaw discord status` check the configuration (names and set/NOT set, never values). `starclaw daemon` refuses to start if an enabled channel is misconfigured.
+* **Listener.** `starclaw daemon` listens on **127.0.0.1 only** (`channels.port`). Slack and Discord cannot reach loopback: you must run a tunnel or reverse proxy (cloudflared, ngrok, nginx...) that forwards HTTPS to it. That proxy is then your exposed surface; StarClaw authenticates callers by signature, not by network position.
+* **Slack app** (least privilege): bot scopes `chat:write` and `im:history`; Event Subscriptions -> `https://<tunnel>/slack/events` with bot event `message.im`; Interactivity -> `https://<tunnel>/slack/interactions`. Set `SLACK_OWNER_ID` to your member id (`U...`). Direct messages from you become goals; replies and approval buttons come back in that DM. *Scopes and settings are from Slack's documentation and were not exercised against a real workspace.*
+* **Discord app**: Interactions Endpoint URL -> `https://<tunnel>/discord/interactions`; copy the application's public key into `DISCORD_PUBLIC_KEY`; run `starclaw discord register` once (uploads the `/starclaw` command using the bot token); set `DISCORD_OWNER_ID` to your numeric user id. Use `/starclaw goal:<text>`; replies are ephemeral. Approval prompts arrive as a DM from the bot. *Not exercised against real Discord.*
+* **Who counts.** Only the configured owner id. Others are ignored/refused, unless `allowPublic` is set, in which case their goals run **tainted** (exec, network, spend and skill-save then need your approval). A non-owner can never answer an approval.
+* `channels.ownerChannel` chooses where approvals and `tools.notifyOwner` go (default `telegram`; the Telegram gateway runs only when it is the owner channel).
 
 ## See it work (2 minutes, offline)
 
@@ -91,7 +111,7 @@ goal ──> LLM writes code ──> Governor: exec? ──(ask/allow/deny)─�
   `starclaw doctor` shows both probes, the active layer and why.
 * **Governor** (`src/governance`): action classes `exec`, `fs.read`, `fs.write`, `net.egress` (per host),
   `spend` (integer cents), `skill.save`, `memory.write`; verdicts `allow | ask | deny`; JSON policy with a
-  strict schema (invalid policy = refuse to start). Approvers: terminal, Telegram (owner only), HTTP (bearer
+  strict schema (invalid policy = refuse to start). Approvers: terminal, Telegram, Slack, Discord (owner only), HTTP (bearer
   auth, constant-time compare). Timeout, error or any answer other than the exact string `approve` = deny.
 * **Taint tracking**: content from the web, from non-owner messages, from host-command output, and from
   memories/files that were themselves written while tainted marks the session tainted. While tainted,

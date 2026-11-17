@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.0.0-alpha.5 (unreleased)
+
+### Added
+* Slack and Discord channels, off by default. Goals, asynchronous approvals (so scheduled jobs can ask you too) and `tools.notifyOwner` over a signed webhook, with no new dependency (Node built-ins only).
+  * One listener on **127.0.0.1 only** (policy `channels.port`, default 8787; there is no option to bind elsewhere). Slack and Discord can only reach it through a tunnel or reverse proxy that you run.
+  * Slack: Events API (`message.im` direct messages) at `/slack/events` and button clicks at `/slack/interactions`. `X-Slack-Signature` (HMAC-SHA256 over `v0:timestamp:rawBody`) is checked in constant time, with a timestamp window (`channels.timestampToleranceSeconds`, default 300) and a replay cache. Redelivered event ids are processed once.
+  * Discord: the `/starclaw goal:<text>` slash command and Approve/Deny buttons at `/discord/interactions`. Ed25519 signature over `timestamp + rawBody`, same window and replay cache. No gateway connection and no message-content intent.
+  * Owner only: the sender id must equal the configured owner id. Anyone else is ignored (Slack) or refused with a bare "Not authorised." (Discord), or, with `slack.allowPublic` / `discord.allowPublic`, runs as a **tainted non-owner goal** exactly like `TELEGRAM_ALLOW_PUBLIC=1`.
+  * Approvals: sent to the owner's DM with the job/goal request id; only the owner's click on that very message counts (user id AND channel AND message id); foreign clicks, replays and late clicks do nothing; expiry is a deny.
+  * Policy blocks `slack`, `discord`, `channels` (strict). Secrets and ids come only from the environment variables whose NAMES the policy holds (defaults `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_OWNER_ID`, `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, `DISCORD_OWNER_ID`). `channels.ownerChannel` (`telegram` by default) picks which channel carries approvals and notifyOwner.
+  * `starclaw slack status`, `starclaw discord status`, `starclaw discord register [--guild <id>]`; `starclaw doctor` prints a line per channel (variable names and set/NOT set only).
+  * Slack/Discord bot tokens are added to the audit-log redaction patterns; the API clients keep the token in a private field, never follow redirects, and scrub it from errors.
+* `GoalQueue`: one bounded queue for goals from every chat channel (they share one engine session and one taint state).
+
+### Changed
+* `starclaw daemon` starts the Telegram gateway only when Telegram is the owner channel (`channels.ownerChannel`, the default). Existing setups are unchanged.
+* The Telegram handler now uses the shared `GoalQueue`, which is bounded (20 pending goals; further goals get "Busy").
+* Tests: local fakes only. NOT verified against real Slack or Discord.
+
 ## 2.0.0-alpha.4 (unreleased)
 
 ### Added
