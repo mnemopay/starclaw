@@ -78,7 +78,9 @@ export function readDiscovery(file: string = defaultDiscoveryPath()): Discovery 
 
 function rawRequest(url: string, method: string, headers: Record<string, string>, payload: string | undefined, timeoutMs: number): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request(url, { method, headers, agent: false }, (res) => {
+    // The browser's strict parser refuses Transfer-Encoding, and Node chunks a body that has no Content-Length: set it (in BYTES).
+    const sent = payload === undefined ? headers : { ...headers, 'content-length': String(Buffer.byteLength(payload)) };
+    const req = http.request(url, { method, headers: sent, agent: false }, (res) => {
       const chunks: Buffer[] = [];
       let size = 0;
       res.on('data', (c: Buffer) => {
