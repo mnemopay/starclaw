@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.0-alpha.7 (unreleased)
+
+### Added
+* **Signed skills registry** (`src/skills/registry`), deliberately NOT an open store: no catalogue, no search, no auto-install, and **no network fetch at all** (bundles are local `.starclaw-skill` files you point to). Policy block `skillsRegistry` (strict, **disabled by default**; when disabled, `skills install` and running a registry skill are refused and nothing else changes).
+  * A skill runs only if (1) it is signed (Ed25519, the existing signer code) by a publisher key YOU pinned in the local keyring (unknown publisher = refuse); (2) the manifest verifies against that signature and every member's sha256 and size matches the signed manifest (any tamper = refuse, fail closed); (3) it **declares** its capabilities (tool names, domains, workspace path scopes, `spendCents` = 0 by default) and runs **attenuated** to the intersection of those and the current policy, never wider (an undeclared tool or scope is refused and audited; a REQUIRED tool the policy denies means it will not run); (4) you approved the install after seeing publisher fingerprint, version, declared capabilities, file hashes and a code and capability diff against any installed version (new action class `skill.install`: ALWAYS asks whatever the policy says, never in unattended runs, no approver = deny); (5) it is not revoked or expired, checked on **every load and every run**; (6) it is not an unflagged rollback or publisher swap (`--allow-rollback` / `--allow-publisher-change`, and a fresh approval that says so).
+  * Revocation: owner-managed (`skills revoke <id> [--version v]`) and signed lists from a pinned publisher (`skills revoke --list file`, rising serial per issuer). There is no CLI to AUTHOR a signed list yet (`signRevocationList` in the API only).
+  * Bundle format: one self-describing JSON file with flat, name-validated text members, capped by `skillsRegistry.maxBundleBytes/maxFiles/maxFileBytes`. No archive library, no decompression, nothing is extracted by member name, no new dependency.
+  * Registry state (keyring, installs, revocations) is signed with the engine's audit key: editing it on disk makes the registry refuse everything.
+  * CLI: `starclaw skills keys add|list|remove`, `keygen` and `sign` (publisher side; key file is created 0600 and never overwritten; a group/other-readable key is refused on POSIX), `verify`, `install`, `list`, `revoke`; `starclaw doctor` prints a Skills registry line. Engine API: `engine.installRegistrySkill(file)`, `engine.runRegistrySkill(id)`.
+  * Agent-authored skills (`--learn-skills`) are unchanged: hash-pinned, `skill.save` approval-gated, NOT signed, and not part of the registry. Taint semantics are unchanged.
+* Tests: `tests/skills-registry.test.ts` (48 tests, including controls that prove the signature check is what rejects a tampered bundle).
+
+### Changed
+* NOT verified: behaviour on Linux/macOS (the POSIX key-file permission test only runs off Windows); any real publisher workflow; registry skills inside the Docker container layer (container tests self-skip when Docker is stopped; only the process layer was exercised).
+
 ## 2.0.0-alpha.6 (unreleased)
 
 ### Added

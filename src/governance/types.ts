@@ -26,6 +26,8 @@ export const ACTION_CLASSES = [
   'browser.read',
   /** A run asking to start a sub-agent with a narrower capability set (tools.spawnAgent). */
   'agent.spawn',
+  /** Installing (or replacing) a skill from the signed skills registry. A human ALWAYS decides; never in unattended runs. */
+  'skill.install',
 ] as const;
 export type ActionClass = (typeof ACTION_CLASSES)[number];
 
@@ -42,16 +44,17 @@ export const TAINT_SENSITIVE: ReadonlySet<ActionClass> = new Set<ActionClass>([
   'browser.open',
   'browser.navigate',
   'agent.spawn',
+  'skill.install',
 ]);
 
 /** Action classes that policy can never auto-allow, tainted or not: a human always decides (or the action is denied). */
-export const ALWAYS_ASK: ReadonlySet<ActionClass> = new Set<ActionClass>(['schedule.create', 'browser.open']);
+export const ALWAYS_ASK: ReadonlySet<ActionClass> = new Set<ActionClass>(['schedule.create', 'browser.open', 'skill.install']);
 
 /** Action classes that a scheduled (unattended) run can never have auto-allowed by a policy `allow`. */
-export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open', 'agent.spawn']);
+export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open', 'agent.spawn', 'skill.install']);
 
 /** Action classes that are refused outright for runs with origin `scheduled`, whatever the policy says. */
-export const DENIED_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create']);
+export const DENIED_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create', 'skill.install']);
 
 /** Action classes that are refused outright inside a sub-agent run, whatever the policy and the capability request say. */
 export const DENIED_IN_SUBAGENT: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create']);

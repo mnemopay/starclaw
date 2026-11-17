@@ -111,6 +111,21 @@ export const BrowserPolicySchema = z
   .strict()
   .refine((b) => !b.enabled || b.allowedDomains.length > 0, { message: 'browser.allowedDomains must be non-empty when browser.enabled is true', path: ['allowedDomains'] });
 
+/**
+ * The signed skills registry (deliberately NOT an open store). Disabled by default: when false, `starclaw skills install`
+ * and running a registry skill are refused and nothing else changes. There is no network fetch: bundles are installed
+ * from a local file the owner points to.
+ */
+export const SkillsRegistryPolicySchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    /** Hard caps applied BEFORE a bundle is parsed / while it is validated. */
+    maxBundleBytes: z.number().int().min(1024).max(5_000_000).default(524_288),
+    maxFiles: z.number().int().min(1).max(64).default(16),
+    maxFileBytes: z.number().int().min(1).max(2_000_000).default(262_144),
+  })
+  .strict();
+
 const EnvNameSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/, 'must be the NAME of an environment variable (e.g. SLACK_BOT_TOKEN), never the secret itself');
 
 /**
@@ -205,12 +220,14 @@ export const PolicySchema = z
         'browser.read': VerdictSchema.default('allow'),
         /** Starting a sub-agent. Needs subagents.enabled too. Whatever this says, an unattended run never auto-allows it, and a tainted session must ask. */
         'agent.spawn': VerdictSchema.default('ask'),
+        /** Whatever this says, installing a registry skill always needs a human (see ALWAYS_ASK). */
+        'skill.install': VerdictSchema.default('ask'),
       })
       .strict()
       .default({
         exec: 'ask', 'fs.read': 'ask', 'fs.write': 'ask', 'net.egress': 'ask', spend: 'ask', 'skill.save': 'ask', 'memory.write': 'ask',
         'shell.exec': 'ask', 'host.exec': 'ask', 'schedule.create': 'ask', 'notify.owner': 'allow',
-        'browser.open': 'ask', 'browser.navigate': 'allow', 'browser.read': 'allow', 'agent.spawn': 'ask',
+        'browser.open': 'ask', 'browser.navigate': 'allow', 'browser.read': 'allow', 'agent.spawn': 'ask', 'skill.install': 'ask',
       }),
     rules: z.array(RuleSchema).max(500).default([{ class: 'fs.read', inWorkspace: true, verdict: 'allow' }]),
     spend: z
@@ -302,6 +319,8 @@ export const PolicySchema = z
     notify: NotifyPolicySchema.default(NotifyPolicySchema.parse({})),
     /** The governed browser tab (tools.browse*). Disabled by default; needs the MnemoPay Native Browser running with its control API on. */
     browser: BrowserPolicySchema.default(BrowserPolicySchema.parse({})),
+    /** Signed, owner-approved skills registry (disabled by default). */
+    skillsRegistry: SkillsRegistryPolicySchema.default(SkillsRegistryPolicySchema.parse({})),
     /** Slack / Discord channels (disabled by default). */
     slack: SlackPolicySchema.default(SlackPolicySchema.parse({})),
     discord: DiscordPolicySchema.default(DiscordPolicySchema.parse({})),

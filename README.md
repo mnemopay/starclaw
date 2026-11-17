@@ -5,7 +5,7 @@ runs that code in an isolated sandbox (a locked-down Docker container, with Node
 engine** that can allow, ask a human, or deny, and that writes a **signed, hash-chained audit record before
 anything runs**.
 
-> **Status: `2.0.0-alpha.6` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
+> **Status: `2.0.0-alpha.7` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
 > npm `next` tag; not yet recommended for customers.** See [Known limits](#known-limits) and
 > [SECURITY.md](SECURITY.md) first. Tested on Windows 11 x64 with Node 25.9.0 only. The old `starclaw@1.0.0` on npm
 > is deprecated and broken: do not use it.
@@ -65,6 +65,21 @@ Both are **off by default** and are configured in the policy; secrets and ids ar
 * **Discord app**: Interactions Endpoint URL -> `https://<tunnel>/discord/interactions`; copy the application's public key into `DISCORD_PUBLIC_KEY`; run `starclaw discord register` once (uploads the `/starclaw` command using the bot token); set `DISCORD_OWNER_ID` to your numeric user id. Use `/starclaw goal:<text>`; replies are ephemeral. Approval prompts arrive as a DM from the bot. *Not exercised against real Discord.*
 * **Who counts.** Only the configured owner id. Others are ignored/refused, unless `allowPublic` is set, in which case their goals run **tainted** (exec, network, spend and skill-save then need your approval). A non-owner can never answer an approval.
 * `channels.ownerChannel` chooses where approvals and `tools.notifyOwner` go (default `telegram`; the Telegram gateway runs only when it is the owner channel).
+
+## Signed skills (optional, off by default)
+
+Not a marketplace. Set `skillsRegistry.enabled` in the policy, pin the publishers **you** trust, and install `.starclaw-skill` files from disk:
+
+```bash
+npx starclaw skills keygen publisher.key                         # publisher: prints the public key + fingerprint
+npx starclaw skills sign ./my-skill --key publisher.key --out my-skill.starclaw-skill   # ./my-skill has skill.json + code files
+npx starclaw skills keys add <publicKeyHex> --label "Acme"        # owner: pin the publisher (check the fingerprint out of band)
+npx starclaw skills verify my-skill.starclaw-skill               # signature, hashes, expiry, revocation; installs nothing
+npx starclaw skills install my-skill.starclaw-skill              # shows publisher, version, capabilities, diff; you approve
+npx starclaw skills list | revoke <id> | keys list | keys remove <fingerprint>
+```
+
+A skill declares the tools, domains, workspace paths and spend it needs; it runs only with the **intersection** of that and your policy, and is re-verified (signature, hashes, expiry, revocation) on every run. Unsigned skills the agent writes itself (`--learn-skills`) are unchanged. Details and limits: [SECURITY.md](SECURITY.md) section 6b.
 
 ## See it work (2 minutes, offline)
 

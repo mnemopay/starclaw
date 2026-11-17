@@ -79,6 +79,27 @@ export class Ed25519Signer implements Signer {
     return s;
   }
 
+  /**
+   * Publisher keys (skills registry): create a NEW key file at `file` (mode 0600, never overwrites) and return the signer.
+   * Same PKCS#8 PEM format as audit.key. On Windows the mode is advisory: the file inherits the directory ACL.
+   */
+  static createKeyFile(file: string): Ed25519Signer {
+    const s = Ed25519Signer.generate();
+    fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+    fs.writeFileSync(file, s.priv.export({ type: 'pkcs8', format: 'pem' }) as string, { mode: 0o600, flag: 'wx' });
+    return s;
+  }
+
+  /** Load a key file. On POSIX a file readable by group/other is REFUSED (0600-style protection); on Windows this cannot be checked. */
+  static loadKeyFile(file: string): Ed25519Signer {
+    const st = fs.statSync(file);
+    if (!st.isFile()) throw new Error('key file is not a regular file');
+    if (process.platform !== 'win32' && (st.mode & 0o077) !== 0) {
+      throw new Error(`key file ${file} is accessible by group/other (mode ${(st.mode & 0o777).toString(8)}); run chmod 600 on it`);
+    }
+    return new Ed25519Signer(createPrivateKey(fs.readFileSync(file, 'utf8')));
+  }
+
   sign(message: string): string {
     return edSign(null, Buffer.from(message, 'utf8'), this.priv).toString('base64');
   }
