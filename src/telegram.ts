@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { TelegramApprover, TelegramUpdate, TelegramApi } from './channels/telegram';
 import type { StarClawEngine } from './engine';
+import { GoalQueue, renderGoalResult } from './channels/queue';
 
 /**
  * Telegram gateway. Fail closed: refuses to start without TELEGRAM_BOT_TOKEN and a numeric TELEGRAM_OWNER_ID.
@@ -8,8 +9,7 @@ import type { StarClawEngine } from './engine';
  * TELEGRAM_ALLOW_PUBLIC=1, in which case they run as NON-OWNER goals (the session is tainted from the start,
  * so exec/network/spend/skill-save always need the owner's approval).
  */
-export function createTelegramHandler(engine: StarClawEngine, api: TelegramApi, approver: TelegramApprover, ownerId: number, allowPublic: boolean) {
-  let queue: Promise<void> = Promise.resolve();
+export function createTelegramHandler(engine: StarClawEngine, api: TelegramApi, approver: TelegramApprover, ownerId: number, allowPublic: boolean, goals: GoalQueue = new GoalQueue()) {
   const send = (chat: number, text: string) => api.call('sendMessage', { chat_id: chat, text: text.slice(0, 3900) }).catch(() => {});
   return async (u: TelegramUpdate) => {
     if (await approver.handleUpdate(u)) return;
@@ -27,13 +27,17 @@ export function createTelegramHandler(engine: StarClawEngine, api: TelegramApi, 
       return;
     }
     const origin = isOwner ? 'owner' : 'non-owner';
-    queue = queue.then(async () => {
+    // One queue shared with the Slack/Discord gateways (when enabled): they all drive the same engine session and taint state.
+    const job = goals.enqueue(async () => {
       await send(m.chat.id, `Working on it${isOwner ? '' : ' (non-owner request: sensitive actions need the owner)'}...`);
       const r = await engine.executeGoal(m.text!, { origin, originRef: `telegram:${m.from?.id ?? 'unknown'}` });
-      const body = r.success ? [r.reply, r.stdout, r.result === undefined || r.result === null ? '' : typeof r.result === 'string' ? r.result : JSON.stringify(r.result)].filter(Boolean).join('\n') || 'Done.' : `Failed: ${r.error}`;
-      await send(m.chat.id, body + (r.tainted ? '\n[session tainted]' : ''));
+      await send(m.chat.id, renderGoalResult(r));
     });
-    await queue.catch(() => {});
+    if (!job) {
+      await send(m.chat.id, 'Busy: too many goals queued. Try again later.');
+      return;
+    }
+    await job.catch(() => {});
   };
 }
 

@@ -111,6 +111,50 @@ export const BrowserPolicySchema = z
   .strict()
   .refine((b) => !b.enabled || b.allowedDomains.length > 0, { message: 'browser.allowedDomains must be non-empty when browser.enabled is true', path: ['allowedDomains'] });
 
+const EnvNameSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/, 'must be the NAME of an environment variable (e.g. SLACK_BOT_TOKEN), never the secret itself');
+
+/**
+ * Slack channel (Events API over a signed webhook). Secrets and the owner id come ONLY from the environment variables named
+ * here; the policy file holds names, never values. Disabled by default. Fails closed (the daemon refuses to start) when enabled
+ * without a bot token, a signing secret and an owner user id.
+ */
+export const SlackPolicySchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    botTokenEnv: EnvNameSchema.default('SLACK_BOT_TOKEN'),
+    signingSecretEnv: EnvNameSchema.default('SLACK_SIGNING_SECRET'),
+    ownerIdEnv: EnvNameSchema.default('SLACK_OWNER_ID'),
+    /** Like TELEGRAM_ALLOW_PUBLIC=1: messages from anyone else run as TAINTED non-owner goals. Default false = they are ignored. */
+    allowPublic: z.boolean().default(false),
+  })
+  .strict();
+
+/** Discord channel (slash command + button interactions over a signed webhook; no gateway, no message-content intent). */
+export const DiscordPolicySchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    botTokenEnv: EnvNameSchema.default('DISCORD_BOT_TOKEN'),
+    /** The application's Ed25519 public key (hex): used to verify every interaction. Not secret, but it must come from the environment too. */
+    publicKeyEnv: EnvNameSchema.default('DISCORD_PUBLIC_KEY'),
+    applicationIdEnv: EnvNameSchema.default('DISCORD_APPLICATION_ID'),
+    ownerIdEnv: EnvNameSchema.default('DISCORD_OWNER_ID'),
+    allowPublic: z.boolean().default(false),
+  })
+  .strict();
+
+/** The one loopback listener shared by Slack and Discord, and which channel carries approvals and owner notifications. */
+export const ChannelsPolicySchema = z
+  .object({
+    /** Listens on 127.0.0.1 ONLY. Exposing it to Slack/Discord needs a tunnel/reverse proxy that YOU set up (see README). */
+    port: z.number().int().min(1024).max(65535).default(8787),
+    /** Which channel carries approvals and tools.notifyOwner. Telegram stays the default (existing behaviour). */
+    ownerChannel: z.enum(['telegram', 'slack', 'discord']).default('telegram'),
+    /** A signed request older (or newer) than this is rejected. */
+    timestampToleranceSeconds: z.number().int().min(30).max(900).default(300),
+    maxBodyBytes: z.number().int().min(1024).max(1_000_000).default(262_144),
+  })
+  .strict();
+
 export const PolicySchema = z
   .object({
     version: z.literal(1),
@@ -233,10 +277,20 @@ export const PolicySchema = z
     notify: NotifyPolicySchema.default(NotifyPolicySchema.parse({})),
     /** The governed browser tab (tools.browse*). Disabled by default; needs the MnemoPay Native Browser running with its control API on. */
     browser: BrowserPolicySchema.default(BrowserPolicySchema.parse({})),
+    /** Slack / Discord channels (disabled by default). */
+    slack: SlackPolicySchema.default(SlackPolicySchema.parse({})),
+    discord: DiscordPolicySchema.default(DiscordPolicySchema.parse({})),
+    channels: ChannelsPolicySchema.default(ChannelsPolicySchema.parse({})),
     /** Treat stdout of host commands and of the shell container as untrusted (taints the session). */
     execOutputTaints: z.boolean().default(true),
   })
-  .strict();
+  .strict()
+  .superRefine((p, ctx) => {
+    const oc = p.channels.ownerChannel;
+    if ((oc === 'slack' && !p.slack.enabled) || (oc === 'discord' && !p.discord.enabled)) {
+      ctx.addIssue({ code: 'custom', path: ['channels', 'ownerChannel'], message: `channels.ownerChannel is "${oc}" but ${oc}.enabled is false` });
+    }
+  });
 
 export type Policy = z.infer<typeof PolicySchema>;
 

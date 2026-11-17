@@ -22,6 +22,9 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bghp_[A-Za-z0-9]{20,}/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\b\d{8,10}:[A-Za-z0-9_-]{30,}\b/g, // Telegram bot token shape
+  /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, // Slack bot/user/app tokens
+  /\bxapp-[A-Za-z0-9-]{10,}/g, // Slack app-level token
+  /\b[MNO][A-Za-z0-9_-]{23,27}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}/g, // Discord bot token shape
   /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi,
   /\bBSA[A-Za-z0-9_-]{20,}/g, // Brave Search API key shape
   /\bAIza[0-9A-Za-z_-]{30,}/g, // Google API key shape

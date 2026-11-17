@@ -1,5 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { DiscordApi } from '../channels/discord';
+import { assertDiscordOwnerId, openOwnerDm } from '../channels/discord';
+import type { SlackApi } from '../channels/slack';
+import { assertSlackOwnerId, slackEscape } from '../channels/slack';
 import type { TelegramApi } from '../channels/telegram';
 import type { Policy } from '../governance/policy';
 
@@ -16,6 +20,29 @@ export class TelegramNotifier implements OwnerNotifier {
   }
   async send(text: string): Promise<void> {
     await this.api.call('sendMessage', { chat_id: this.ownerId, text: text.slice(0, 3900) });
+  }
+}
+
+/** Slack DM to the ONE configured owner (no recipient parameter). Text is escaped so message content cannot mention or link. */
+export class SlackNotifier implements OwnerNotifier {
+  readonly name = 'slack';
+  constructor(private readonly api: SlackApi, private readonly ownerId: string) {
+    assertSlackOwnerId(ownerId, 'SlackNotifier');
+  }
+  async send(text: string): Promise<void> {
+    await this.api.call('chat.postMessage', { channel: this.ownerId, text: slackEscape(text).slice(0, 3900), mrkdwn: false, link_names: false, unfurl_links: false, unfurl_media: false });
+  }
+}
+
+/** Discord DM to the ONE configured owner. Mentions are disabled on the message. */
+export class DiscordNotifier implements OwnerNotifier {
+  readonly name = 'discord';
+  constructor(private readonly api: DiscordApi, private readonly ownerId: string) {
+    assertDiscordOwnerId(ownerId, 'DiscordNotifier');
+  }
+  async send(text: string): Promise<void> {
+    const dm = await openOwnerDm(this.api, this.ownerId);
+    await this.api.call('POST', `/channels/${dm}/messages`, { content: text.slice(0, 1900), allowed_mentions: { parse: [] } });
   }
 }
 

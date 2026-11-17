@@ -17,3 +17,6 @@ export { HttpApprover, approvalRouter, bearerAuth } from './channels/http';
 export { createGateway } from './server';
 export type { LLM } from './llm/types';
 export { GroqLLM } from './llm/GroqLLM';
+export { SlackApprover, SlackGateway, FetchSlackApi } from './channels/slack';
+export { DiscordApprover, DiscordGateway, FetchDiscordApi } from './channels/discord';
+export { verifySlackSignature, verifyDiscordSignature } from './channels/verify';
