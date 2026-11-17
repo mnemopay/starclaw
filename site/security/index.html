@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StarClaw security: what is and is not protected</title>
+<meta name="description" content="Plain statement of what the StarClaw alpha protects, what it does not, and its known limits. It does not prevent prompt injection.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:type" content="website">
+<meta property="og:title" content="StarClaw security: what is and is not protected">
+<meta property="og:description" content="Plain statement of what the StarClaw alpha protects, what it does not, and its known limits. It does not prevent prompt injection.">
+<meta property="og:site_name" content="StarClaw">
+<meta name="twitter:card" content="summary">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="alpha" role="note">
+  <div class="wrap"><strong>Alpha software.</strong> StarClaw 2.x is an alpha and is not recommended for customers, production use or anyone who needs a guarantee.</div>
+</div>
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><svg viewBox="0 0 32 32" role="img" aria-label="StarClaw logo" focusable="false"><circle cx="16" cy="16" r="15" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 5l3.1 7.1 7.7.7-5.8 5.1 1.7 7.5L16 21.4 9.3 25.4l1.7-7.5-5.8-5.1 7.7-.7z" fill="currentColor"/></svg><span>StarClaw <span class="muted">alpha</span></span></a>
+    <nav aria-label="Main">
+      <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../security/index.html" aria-current="page">Security</a></li>
+          <li><a href="../docs/index.html">Docs</a></li>
+          <li><a href="../download/index.html">Download</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<main id="main">
+  <div class="wrap">
+
+    <h1>Security: what is and is not protected</h1>
+    <div class="callout warn">
+      <p><strong>StarClaw does not prevent prompt injection.</strong> It assumes the model will sometimes be steered by hostile content. It limits what that can cost you: risky actions need a human, who is shown the exact action and where the untrusted content came from, and everything is provable afterwards.</p>
+      <p>This is an alpha. It has had no external review or fuzzing. Do not treat it as secure, production-ready or consumer-ready.</p>
+    </div>
+    <p>This page restates the "What is and is not protected" and "Known limits" sections of the <a href="https://github.com/mnemopay/starclaw/blob/main/README.md">README</a>, and parts of <a href="https://github.com/mnemopay/starclaw/blob/main/SECURITY.md">SECURITY.md</a>. If this page and those files ever disagree, the files in the repository win.</p>
+
+    <h2>What is and is not protected</h2>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col">Threat</th><th scope="col">Result</th></tr></thead>
+      <tbody>
+        <tr><td>Generated code spawns processes, loads addons/workers/WASI, opens sockets, reads or writes outside the workspace, signals other processes</td><td>Blocked and probe-verified on Node 25.9.0 / Windows, in the process layer and (when available) again by the container layer. Details: <code>starclaw doctor</code>.</td></tr>
+        <tr><td>Generated code tries to reach the host (files, network, docker socket, environment, other processes)</td><td>Container layer: no mounts, no network, no capabilities, non-root, read-only root, memory and process caps. Probe-verified from the host side on Docker Desktop (WSL2).</td></tr>
+        <tr><td>Injected text makes the agent exfiltrate data, run commands or spend</td><td><strong>Not prevented.</strong> Requires human approval once the session is tainted; the human sees the provenance.</td></tr>
+        <tr><td>You approve something harmful</td><td>Nothing stops you. Approved host commands run with your full privileges.</td></tr>
+        <tr><td>Someone edits the audit log or memory without the signing key</td><td>Detected.</td></tr>
+        <tr><td>Someone who can read <code>.starclaw/audit.key</code></td><td>Can forge both. The key sits next to the data.</td></tr>
+        <tr><td>Malicious code that finds a Node permission-model bypass</td><td>With the container layer: confined by the container instead. Without it: <strong>not covered</strong> (Node documents the model as a "seat belt").</td></tr>
+        <tr><td>Malicious code that finds a Linux kernel or container-runtime escape</td><td><strong>Not covered.</strong> Containers share the kernel (on Docker Desktop: the WSL2 VM's). For hostile multi-tenant use, put gVisor, Kata or Firecracker underneath.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2>Known limits</h2>
+    <ul>
+      <li>Only Windows 11 x64 with Node 25.9.0 was tested. Linux and macOS are untested (the startup probe will tell you what it finds).</li>
+      <li>Node.js 25.9.0 or newer is required. On Node 24.22.3 and 22.23.5 the permission model still allows outbound network, so the probe fails and StarClaw refuses to run generated code. Node 25.0 to 25.8 were not tested; the runtime probe decides.</li>
+      <li>Containers are not VMs: they share the host kernel. Passing an alternative OCI runtime (such as <code>runsc</code>) is supported by a setting, but that path is untested.</li>
+      <li>The container does not protect <code>.starclaw/audit.key</code> if the host itself is compromised. The key lives on the host.</li>
+      <li>Without Docker, the process layer is Node's permission model plus JavaScript-level hardening plus a probe: a seat belt, not a VM.</li>
+      <li>Docker was only tested on Windows 11 with Docker Desktop (Linux containers, WSL2).</li>
+      <li>No payment rail is included. Real money movement is unimplemented and untested.</li>
+      <li><code>tools.runCommand</code> runs approved commands unsandboxed on the host.</li>
+      <li>Memory and audit integrity are only as strong as the secrecy of the key in <code>.starclaw/</code>.</li>
+      <li>Slack, Discord and the browser tools were verified only against local fakes, not the real services.</li>
+    </ul>
+
+    <h2>Threat model in short</h2>
+    <p><strong>Considered:</strong> hostile content that tries to steer the model; a misbehaving or compromised model that emits arbitrary code; a local attacker who can write to the state directory but does not have the signing key.</p>
+    <p><strong>Not considered:</strong> an attacker who can read the signing key or run code as your user outside StarClaw; a malicious maintainer or dependency; physical access; side channels.</p>
+
+    <h2>Residual risks, plainly</h2>
+    <ol>
+      <li>Prompt injection works against the model. StarClaw only gates what the model can do. A human who approves is the last line of defence.</li>
+      <li>The process layer is a seat belt. A container or kernel escape is not covered.</li>
+      <li>Approved host commands are unsandboxed.</li>
+      <li>Key and state files are only as safe as your user account.</li>
+      <li>Only one OS and Node combination was tested. No external review or fuzzing was done.</li>
+    </ol>
+
+    <h2>Reporting a problem</h2>
+    <p>SECURITY.md asks that vulnerabilities be reported privately to the maintainer, and that exploits not be filed as public issues. Report them to <a href="mailto:security@starclaw.dev">security@starclaw.dev</a>.</p>
+
+  </div>
+</main>
+<footer class="site">
+  <div class="wrap">
+    <p>StarClaw is alpha software under the <a href="https://github.com/mnemopay/starclaw/blob/main/LICENSE">Apache-2.0 license</a>. Source: <a href="https://github.com/mnemopay/starclaw">github.com/mnemopay/starclaw</a>.</p>
+    <p>Copyright (c) 2026 Jeremiah Omiagbo / J&amp;B Enterprise LLC. This site has no scripts, no cookies, no forms and no tracking.</p>
+  </div>
+</footer>
+</body>
+</html>

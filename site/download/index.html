@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get StarClaw: npm alpha and source (no installer yet)</title>
+<meta name="description" content="What exists today: an npm alpha package and the GitHub source. There is no installer or desktop app yet.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Get StarClaw: npm alpha and source (no installer yet)">
+<meta property="og:description" content="What exists today: an npm alpha package and the GitHub source. There is no installer or desktop app yet.">
+<meta property="og:site_name" content="StarClaw">
+<meta name="twitter:card" content="summary">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="alpha" role="note">
+  <div class="wrap"><strong>Alpha software.</strong> StarClaw 2.x is an alpha and is not recommended for customers, production use or anyone who needs a guarantee.</div>
+</div>
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><svg viewBox="0 0 32 32" role="img" aria-label="StarClaw logo" focusable="false"><circle cx="16" cy="16" r="15" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 5l3.1 7.1 7.7.7-5.8 5.1 1.7 7.5L16 21.4 9.3 25.4l1.7-7.5-5.8-5.1 7.7-.7z" fill="currentColor"/></svg><span>StarClaw <span class="muted">alpha</span></span></a>
+    <nav aria-label="Main">
+      <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../security/index.html">Security</a></li>
+          <li><a href="../docs/index.html">Docs</a></li>
+          <li><a href="../download/index.html" aria-current="page">Download</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<main id="main">
+  <div class="wrap">
+
+    <h1>Get StarClaw</h1>
+    <div class="callout warn">
+      <p><strong>There is no installer.</strong> No desktop app, no <code>.exe</code> or <code>.dmg</code>, no app-store listing and no hosted service exist yet. What exists today is a command-line package on npm and the source code on GitHub.</p>
+    </div>
+
+    <h2>1. From npm (the published alpha)</h2>
+    <pre><code>npm install starclaw@next</code></pre>
+    <p>This installs <strong>2.0.0-alpha.3</strong>, which is what the <code>next</code> tag on npm points to right now. Always include <code>@next</code>. Plain <code>npm install starclaw</code> installs the old <code>1.0.0</code>, which is deprecated and broken.</p>
+    <p>Package page: <a href="https://www.npmjs.com/package/starclaw">npmjs.com/package/starclaw</a>.</p>
+
+    <h2>2. From source (slightly newer)</h2>
+    <p>The <code>main</code> branch on GitHub is at <strong>2.0.0-alpha.5</strong>, which is not published to npm. It adds the Slack and Discord channels and the governed browser tools.</p>
+    <pre><code>git clone https://github.com/mnemopay/starclaw &amp;&amp; cd starclaw &amp;&amp; npm install &amp;&amp; npm run build
+node dist/cli.js doctor</code></pre>
+    <p>Source: <a href="https://github.com/mnemopay/starclaw">github.com/mnemopay/starclaw</a> (Apache-2.0).</p>
+
+    <h2>What you need</h2>
+    <ul>
+      <li><strong>Node.js 25.9.0 or newer.</strong> Older versions are refused on purpose.</li>
+      <li>A model API key. The bundled backend is Groq; others are configurable in the policy.</li>
+      <li>Docker, if you want the container sandbox layer. Optional but recommended. Without it only the weaker Node permission layer is used.</li>
+      <li>Tested on Windows 11 x64 only. Linux and macOS are untested.</li>
+    </ul>
+
+    <h2>Get notified about an installer</h2>
+    <p>There is no mailing list and this site collects nothing. If you want to ask to be told when something easier to install exists, you can send an email. The link below just opens your own email program, addressed to the contact address in the package metadata. It is a request, not a promise of any date.</p>
+    <p><a href="mailto:hello@starclaw.dev?subject=StarClaw%20installer%20notification">Email to ask for a notification</a></p>
+
+  </div>
+</main>
+<footer class="site">
+  <div class="wrap">
+    <p>StarClaw is alpha software under the <a href="https://github.com/mnemopay/starclaw/blob/main/LICENSE">Apache-2.0 license</a>. Source: <a href="https://github.com/mnemopay/starclaw">github.com/mnemopay/starclaw</a>.</p>
+    <p>Copyright (c) 2026 Jeremiah Omiagbo / J&amp;B Enterprise LLC. This site has no scripts, no cookies, no forms and no tracking.</p>
+  </div>
+</footer>
+</body>
+</html>
