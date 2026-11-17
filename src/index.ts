@@ -22,3 +22,6 @@ export { GroqLLM } from './llm/GroqLLM';
 export { SlackApprover, SlackGateway, FetchSlackApi } from './channels/slack';
 export { DiscordApprover, DiscordGateway, FetchDiscordApi } from './channels/discord';
 export { verifySlackSignature, verifyDiscordSignature } from './channels/verify';
+export { SkillRegistry, SkillRefused, RegistryStateError, signRevocationList } from './skills/registry/registry';
+export { buildBundle, verifyBundle, BundleError } from './skills/registry/bundle';
+export { AttenuatedGovernor } from './skills/registry/attenuate';

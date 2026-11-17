@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { Command } from 'commander';
 import { applySandboxFlags, createEngine, CommonCliOptions } from './bootstrap';
@@ -17,6 +18,10 @@ import { browserStatus } from './browser/status';
 import { discordStatus, listenerStatus, slackStatus } from './channels/status';
 import { resolveDiscordConfig } from './channels/config';
 import { FetchDiscordApi, registerDiscordCommand } from './channels/discord';
+import { Ed25519Signer, fingerprint } from './governance/signer';
+import { buildBundle } from './skills/registry/bundle';
+import { describeCaps } from './skills/registry/registry';
+import { skillsRegistryStatus } from './skills/registry/status';
 import { buildShellImage, cleanShellContainers, defaultShellImageTag, listShellContainers, shellImageStatus } from './shell/shellImage';
 
 const VERSION: string = (() => {
@@ -178,6 +183,7 @@ program
   .option('--workspace <dir>', 'workspace dir', 'workspace')
   .option('--sandbox <mode>', 'auto | container | process (overrides the policy)')
   .option('--require-container', 'refuse unless the container layer passes its probe')
+  .option('--state-dir <dir>', 'state directory (only used for the skills registry line)')
   .action(async (o: CommonCliOptions) => {
     try {
       const policy = applySandboxFlags(loadPolicy(o.policy), o);
@@ -201,6 +207,9 @@ program
       const bs = await browserStatus(policy);
       console.log(bs.line);
       for (const w of bs.warnings) console.log('  WARNING: ' + w);
+      const sr = skillsRegistryStatus(policy, o.stateDir ?? process.env.STARCLAW_STATE_DIR ?? '.starclaw');
+      console.log(sr.line);
+      for (const w of sr.warnings) console.log('  WARNING: ' + w);
       let channelsBroken = false;
       for (const cs of [slackStatus(policy, process.env), discordStatus(policy, process.env), listenerStatus(policy)]) {
         console.log(cs.line);
@@ -361,6 +370,142 @@ common(scheduleCmd.command('resume <id>')).description('resume a paused job (cle
     console.log(engine.jobs.update(id, { paused: false, pausedReason: undefined, consecutiveFailures: 0 }) ? 'resumed' : 'no such job');
   })(),
 );
+
+// ---- signed skills registry (local files only; deliberately NOT an open store) ----------------------------------------
+
+const skillsCmd = program.command('skills').description('signed, owner-approved skills registry (policy skillsRegistry; local .starclaw-skill files only, no network)');
+const withEngine = (o: CommonCliOptions, approver: CliApprover | undefined, fn: (engine: StarClawEngine) => void | Promise<void>) => async () => {
+  let engine: StarClawEngine | undefined;
+  try {
+    engine = createEngine(o, approver, noLlm);
+    await fn(engine);
+  } catch (e) {
+    fatal(e);
+  } finally {
+    engine?.memory.close();
+  }
+};
+const HEX64 = /^[0-9a-fA-F]{64}$/;
+
+const keysCmd = skillsCmd.command('keys').description("the owner's keyring of pinned publisher keys: only skills signed by these can ever install or run");
+common(keysCmd.command('add <publicKey>'))
+  .description('pin a publisher: <publicKey> is the 64-hex Ed25519 public key, or a file containing it. Check the fingerprint with the publisher out of band.')
+  .requiredOption('--label <text>', 'who this publisher is')
+  .action((pub: string, o: CommonCliOptions & { label: string }) =>
+    withEngine(o, undefined, (engine) => {
+      const hex = HEX64.test(pub) ? pub : fs.readFileSync(pub, 'utf8').trim();
+      const k = engine.registry.addKey(hex, o.label);
+      console.log(`pinned publisher ${k.fingerprint} (${o.label})`);
+    })(),
+  );
+common(keysCmd.command('list')).description('list pinned publishers').action((o: CommonCliOptions) =>
+  withEngine(o, undefined, (engine) => {
+    const ks = engine.registry.listKeys();
+    if (!ks.length) return console.log('no publisher keys pinned');
+    for (const k of ks) console.log(`${k.fingerprint}  ${k.label}`);
+  })(),
+);
+common(keysCmd.command('remove <fingerprint>')).description('un-pin a publisher: every installed skill from it stops running immediately').action((fp: string, o: CommonCliOptions) =>
+  withEngine(o, undefined, (engine) => {
+    console.log(engine.registry.removeKey(fp) ? 'removed' : 'no such publisher');
+  })(),
+);
+
+skillsCmd
+  .command('keygen <keyFile>')
+  .description('PUBLISHER: create a new Ed25519 signing key file (mode 0600, never overwrites). Prints the public key and fingerprint, never the private key.')
+  .action((keyFile: string) => {
+    try {
+      const s = Ed25519Signer.createKeyFile(keyFile);
+      console.log(`public key : ${s.publicKeyHex}\nfingerprint: ${fingerprint(s.publicKeyHex)}\nkey file    : ${keyFile} (keep it private; ${process.platform === 'win32' ? 'on Windows its protection is the directory ACL, not a mode' : 'mode 0600'})`);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+skillsCmd
+  .command('sign <dir>')
+  .description('PUBLISHER: bundle and sign a skill. <dir> holds skill.json {id,version,description,entry,expiresAt?,capabilities} plus the flat code files.')
+  .requiredOption('--key <keyFile>', 'publisher key file (refused if group/other readable on POSIX)')
+  .requiredOption('--out <file>', 'output .starclaw-skill file (never overwritten)')
+  .action((dir: string, o: { key: string; out: string }) => {
+    try {
+      const signer = Ed25519Signer.loadKeyFile(o.key);
+      const draft = JSON.parse(fs.readFileSync(path.join(dir, 'skill.json'), 'utf8'));
+      const members: Record<string, string> = {};
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (ent.name === 'skill.json') continue;
+        if (!ent.isFile()) throw new Error(`${ent.name}: only regular files are bundled (no directories or links)`);
+        const st = fs.statSync(path.join(dir, ent.name));
+        if (st.size > 262_144) throw new Error(`${ent.name} is larger than 256 KB`);
+        members[ent.name] = fs.readFileSync(path.join(dir, ent.name), 'utf8');
+      }
+      fs.writeFileSync(o.out, buildBundle(draft, members, signer), { flag: 'wx' });
+      console.log(`signed ${draft.id}@${draft.version} as publisher ${fingerprint(signer.publicKeyHex)} -> ${o.out}`);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+common(skillsCmd.command('verify <file>'))
+  .description('verify a bundle against YOUR keyring (pinned publisher, signature, hashes, expiry, revocation); installs nothing; exit 1 if it fails')
+  .action((file: string, o: CommonCliOptions) =>
+    withEngine(o, undefined, (engine) => {
+      try {
+        const v = engine.registry.verifyFile(file);
+        const m = v.manifest;
+        console.log(`OK: ${m.id}@${m.version} signed by pinned publisher ${m.publisher} ("${v.publisher.label}"); bundle sha256 ${v.bundleSha256}`);
+        for (const l of describeCaps(m.capabilities)) console.log('  ' + l);
+      } catch (e: any) {
+        console.log(`REFUSED: ${e.message}`);
+        process.exitCode = 1;
+      }
+    })(),
+  );
+common(skillsCmd.command('install <file>'))
+  .description('install a .starclaw-skill file after YOU approve it (shown: publisher fingerprint, version, declared capabilities, diff vs any installed version). No approver = denied.')
+  .option('--allow-rollback', 'permit a lower/same version replacing the installed one (still needs a fresh approval)')
+  .option('--allow-publisher-change', 'permit a different publisher replacing the installed skill (still needs a fresh approval)')
+  .action(async (file: string, o: CommonCliOptions & { allowRollback?: boolean; allowPublisherChange?: boolean }) => {
+    let rl: readline.Interface | undefined;
+    let approver: CliApprover | undefined;
+    if (process.stdin.isTTY) {
+      rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+      approver = new CliApprover(
+        (prompt, signal) => new Promise((res, rej) => { signal.addEventListener('abort', () => rej(new Error('timeout'))); rl!.question(prompt, { signal }, res); }),
+        (s) => console.error(s),
+      );
+    } else console.error('starclaw: stdin is not a terminal, so no one can approve: the install will be denied.');
+    await withEngine(o, approver, async (engine) => {
+      try {
+        const r = await engine.installRegistrySkill(file, { allowRollback: o.allowRollback, allowPublisherChange: o.allowPublisherChange });
+        console.log(r.alreadyInstalled ? `${r.id}@${r.version} is already installed (identical bundle)` : `installed ${r.id}@${r.version} (publisher ${r.publisher})`);
+      } catch (e: any) {
+        console.error(`REFUSED: ${e.message}`);
+        process.exitCode = 1;
+      }
+    })();
+    rl?.close();
+  });
+common(skillsCmd.command('list')).description('list installed registry skills and whether each would run right now').action((o: CommonCliOptions) =>
+  withEngine(o, undefined, (engine) => {
+    const l = engine.registry.list();
+    if (!l.length) return console.log('no registry skills installed');
+    for (const s of l) console.log(`${s.id}@${s.version}  publisher ${s.publisher} (${s.label ?? 'NOT PINNED'})  ${s.status}  installed ${s.installedAt}`);
+  })(),
+);
+common(skillsCmd.command('revoke [id]'))
+  .description('revoke a skill by id (all versions unless --version), or import a signed revocation list from a pinned publisher with --list')
+  .option('--version <v>', 'only this version')
+  .option('--reason <text>', 'why')
+  .option('--list <file>', 'import a signed revocation list instead of naming an id')
+  .action((id: string | undefined, o: CommonCliOptions & { version?: string; reason?: string; list?: string }) =>
+    withEngine(o, undefined, (engine) => {
+      if (o.list) return void console.log(`imported ${engine.registry.importRevocationList(o.list)} revocation(s)`);
+      if (!id) throw new Error('give a skill id, or --list <file>');
+      engine.registry.revoke(id, { version: o.version, reason: o.reason });
+      console.log(`revoked ${id}${o.version ? '@' + o.version : ' (all versions)'}; it refuses to run from now on`);
+    })(),
+  );
+
 
 // ---- Slack / Discord (webhook channels; configured in the policy, secrets only from the environment) ----------------
 

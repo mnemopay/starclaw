@@ -22,6 +22,8 @@ import { SkillStore, sanitizeSkillName } from './skills/SkillStore';
 import { NotifyLimiter, OwnerNotifier } from './notify/Notifier';
 import { Job, JobStore } from './scheduler/JobStore';
 import { ShellRunner } from './shell/ShellRunner';
+import { SkillRegistry, SkillRefused, InstallOptions, InstallResult } from './skills/registry/registry';
+import { AttenuatedGovernor, attenuatedHandler, unmetRequirements } from './skills/registry/attenuate';
 
 export type Origin = 'owner' | 'non-owner';
 
@@ -124,6 +126,8 @@ export class StarClawEngine {
   broker: Broker;
   readonly budget: LlmBudget;
   readonly skills: SkillStore;
+  /** Signed, owner-approved skills (policy skillsRegistry; disabled by default). Separate from the agent's own hash-pinned `skills`. */
+  readonly registry: SkillRegistry;
   readonly policy: Policy;
   readonly stateDir: string;
   readonly workspaceDir: string;
@@ -164,6 +168,13 @@ export class StarClawEngine {
       onQuarantine: (q) => this.audit.append('memory.quarantine', q),
     });
     this.skills = new SkillStore(path.join(this.stateDir, 'skills'));
+    this.registry = new SkillRegistry({
+      dir: path.join(this.stateDir, 'skills-registry'),
+      signer,
+      audit: this.audit,
+      policy: () => this.policy.skillsRegistry,
+      authorize: (a) => this.governor.authorize(a),
+    });
     this.budget = new LlmBudget(this.policy.llmBudget.perRunCents, this.policy.llmBudget.perDayCents, path.join(this.stateDir, 'llm-budget.json'));
     this.sandbox =
       o.sandbox ??
@@ -614,6 +625,69 @@ export class StarClawEngine {
       if (e instanceof GovernorDenied) return fail('task', e.message, { denied: e.decision });
       if (e instanceof BudgetExceeded) return fail('task', `LLM budget: ${e.message}`);
       return fail('task', String(e?.message ?? e));
+    }
+  }
+
+  /** Install a signed bundle from a local file. The owner's approval is requested through the Governor (class skill.install; no approver = deny). */
+  installRegistrySkill(file: string, o: InstallOptions = {}): Promise<InstallResult> {
+    return this.registry.install(file, o);
+  }
+
+  /**
+   * Run an installed registry skill. It is re-verified in full on every run (signature, hashes, expiry, revocation) and then
+   * runs ATTENUATED: its declared capabilities intersected with the current policy, never wider. Unsigned/agent-authored
+   * skills (`this.skills`) are unaffected by this path and keep their existing semantics.
+   */
+  async runRegistrySkill(id: string, o: GoalOptions = {}): Promise<GoalResult> {
+    const gov = this.governor;
+    const fail = (error: string, extra: Partial<GoalResult> = {}): GoalResult => {
+      this.audit.append('goal.failed', { error: error.slice(0, 500), skill: id });
+      return { success: false, kind: 'task', error, tainted: gov.taint.tainted, llmCostCentsCeil: 0, ...extra };
+    };
+    try {
+      const skill = this.registry.load(id);
+      const { manifest } = skill;
+      const unmet = unmetRequirements(this.policy, manifest.capabilities);
+      if (unmet.length) {
+        this.audit.append('skillreg.refused', { code: 'capability-not-granted', id, version: manifest.version, unmet });
+        return fail(`skill ${id} requires capabilities the current policy does not grant: ${unmet.join('; ')}`);
+      }
+      const origin = o.origin ?? 'owner';
+      if (origin !== 'owner') gov.taint.mark('non-owner-message', o.originRef ?? 'non-owner');
+      await this.sandbox.ensureSafe();
+      const ref = `${manifest.id}@${manifest.version}`;
+      const agov = new AttenuatedGovernor(
+        { policy: this.policy, audit: this.audit, taint: gov.taint, approver: this.approver, spendAuthority: this.spendAuthority, rail: this.rail },
+        manifest.capabilities,
+        { id: manifest.id, version: manifest.version },
+        fs.realpathSync.native(this.workspaceDir),
+      );
+      const codeHash = sha256Hex(skill.code);
+      const d = await agov.authorize({
+        class: 'exec',
+        target: `skill:${ref}`,
+        summary: `Run signed registry skill ${ref} (publisher ${manifest.publisher}, bundle sha256 ${skill.bundleSha256.slice(0, 12)}) in the isolated sandbox, attenuated to its declared capabilities`,
+        detail: `${manifest.description}
+declared: tools=${manifest.capabilities.tools.join(',') || '-'} optional=${manifest.capabilities.optionalTools.join(',') || '-'} domains=${manifest.capabilities.domains.join(',') || '-'} paths=${manifest.capabilities.paths.join(',') || '-'} spendCents=${manifest.capabilities.spendCents}
+--- code ---
+${skill.code}`,
+      });
+      if (!d.allowed) return fail(`execution not permitted: ${d.reason}`, { denied: d });
+      // The skill runs inside the owner's main run, but any sub-agent it spawns must inherit the ATTENUATED governor, never the owner's.
+      const broker = this.makeBroker(agov, () => ({ ...this.main, governor: agov }));
+      const handler = attenuatedHandler((call) => broker.handle(call), manifest.capabilities, { id: manifest.id, version: manifest.version }, this.audit);
+      this.audit.append('exec.start', { decisionId: d.id, codeSha256: codeHash, skill: ref, bundleSha256: skill.bundleSha256, tainted: gov.taint.tainted });
+      const next = this.sandboxLock.then(() => this.sandbox.run(skill.code, handler));
+      this.sandboxLock = next.catch(() => {});
+      const run = await next;
+      this.audit.append('exec.result', { decisionId: d.id, codeSha256: codeHash, skill: ref, ok: run.ok, error: run.error?.slice(0, 500), timedOut: run.timedOut, brokerCalls: run.brokerCalls, stdoutBytes: run.stdout.length, durationMs: run.durationMs, taintedAfter: gov.taint.tainted });
+      // A revocation that landed while it ran is recorded; the run's effects were already governed call by call.
+      if (!run.ok) return fail(run.error ?? 'execution failed', { stdout: run.stdout });
+      return { success: true, kind: 'task', result: run.value, stdout: run.stdout, tainted: gov.taint.tainted, llmCostCentsCeil: 0 };
+    } catch (e: any) {
+      if (e instanceof GovernorDenied) return fail(e.message, { denied: e.decision });
+      if (e instanceof SkillRefused) return fail(`skill refused: ${e.message}`);
+      return fail(String(e?.message ?? e));
     }
   }
 
