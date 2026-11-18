@@ -17,3 +17,7 @@ Section direction:
 Motion: slow continuous 3D movement, small staggered reveals and purposeful state transitions. Stop off-screen and respect reduced motion. Never delay access to content.
 Interactions: accessible mobile navigation, copy buttons with feedback and fallback, keyboard-operated capability tabs, a walkthrough dialog with focus restoration, functional internal links. No pretend signup forms or backend actions.
 Avoid: generic bento grids, fake statistics, invented security guarantees, decorative dashboards masquerading as actual product screenshots, excessive warnings as marketing copy, custom cursors and scroll hijacking.
+
+## Direction 02 — Independent intelligence
+
+Alternative at `editorial/index.html`. Warm ivory #f4f1e9, ink #23251f, vermilion #d84b2b. Centered editorial typography pairs Space Grotesk with Georgia italic. An original copper particle sculpture replaces the dark orbital knot. Instrument labels and a clearly illustrative agent note make the art feel purposeful. Open ruled feature rows replace panels; a quiet olive surface introduces governance. Both directions remain available for comparison.
