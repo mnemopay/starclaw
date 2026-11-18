@@ -43,13 +43,33 @@ interface PendingEntry {
 export class HttpApprover implements Approver {
   readonly name = 'http';
   private pending = new Map<string, PendingEntry>();
+  private listeners = new Set<() => void>();
+
+  /** Called whenever the pending set changes (new request, decision, expiry). Returns an unsubscribe function. */
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+  private changed() {
+    for (const fn of this.listeners) {
+      try {
+        fn();
+      } catch {
+        /* a broken listener must not affect approvals */
+      }
+    }
+  }
 
   request(req: ApprovalRequest, signal: AbortSignal): Promise<ApprovalAnswer> {
     return new Promise<ApprovalAnswer>((resolve) => {
       this.pending.set(req.id, { req, resolve });
       signal.addEventListener('abort', () => {
-        if (this.pending.delete(req.id)) resolve('deny');
+        if (this.pending.delete(req.id)) {
+          resolve('deny');
+          this.changed();
+        }
       });
+      this.changed();
     });
   }
 
@@ -73,6 +93,7 @@ export class HttpApprover implements Approver {
     if (!e) return false;
     this.pending.delete(id);
     e.resolve(answer);
+    this.changed();
     return true;
   }
   get pendingCount() {
