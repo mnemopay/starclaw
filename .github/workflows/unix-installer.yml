@@ -42,11 +42,13 @@ jobs:
           "$HOME/.local/bin/starclaw" --version
       - name: The app starts in guided setup and its API needs the key
         run: |
+          set -x
           export STARCLAW_HOME="$HOME/sc-home"
           "$HOME/.local/bin/starclaw-app" --no-open > app.log 2>&1 &
           for i in $(seq 1 60); do grep -q 'Ctrl+C' app.log && break; sleep 1; done
           grep -v '#key=' app.log || true
-          port=$(grep -oE '127\.0\.0\.1:[0-9]+' app.log | head -1 | cut -d: -f2)
+          # -m1, not `| head -1`: under pipefail, head closing the pipe early fails the whole assignment.
+          port=$(grep -m1 -oE '127\.0\.0\.1:[0-9]+' app.log | cut -d: -f2)
           key=$(grep '^STARCLAW_API_KEY=' "$STARCLAW_HOME/.env" | cut -d= -f2)
           test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/setup/status")" = 401
           # Capture first: with pipefail, `curl | grep -q` can fail when grep exits early (SIGPIPE).
