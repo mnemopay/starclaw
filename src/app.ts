@@ -70,12 +70,17 @@ export interface StartAppOptions {
   open?: ((url: string) => void) | false;
 }
 
+/** The console keeps its conversation next to the agent's other state (`<stateDir>/console`). */
+function gatewayOptions(engine: StarClawEngine) {
+  return engine.stateDir ? { transcriptDir: path.join(engine.stateDir, 'console') } : {};
+}
+
 /** Start the gateway on 127.0.0.1 only. Resolves once listening; `url` carries the key in its fragment. */
 export async function startApp(o: StartAppOptions): Promise<{ url: string; port: number; mode: () => 'setup' | 'agent'; close: () => Promise<void> }> {
   if (!o.engine && !o.setup) throw new Error('startApp needs an engine or setup options');
   let mode: 'setup' | 'agent' = o.engine ? 'agent' : 'setup';
   let current: express.RequestHandler = o.engine
-    ? createGateway(o.engine, o.approver ?? new HttpApprover(), o.apiKey)
+    ? createGateway(o.engine, o.approver ?? new HttpApprover(), o.apiKey, gatewayOptions(o.engine))
     : createSetupApp({
         apiKey: o.apiKey,
         home: o.setup!.home,
@@ -83,7 +88,7 @@ export async function startApp(o: StartAppOptions): Promise<{ url: string; port:
         env: o.setup!.env,
         onSaved: async () => {
           const b = await o.setup!.boot();
-          current = createGateway(b.engine, b.approver, o.apiKey);
+          current = createGateway(b.engine, b.approver, o.apiKey, gatewayOptions(b.engine));
           mode = 'agent';
         },
       });

@@ -5,87 +5,210 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StarClaw Console</title>
 <style>
-  :root { --bg:#0b0d0f; --panel:#15181b; --line:#2a2f35; --text:#e8eaed; --muted:#8b949e; --accent:#7c3aed; --warn:#f59e0b; --bad:#ef4444; --good:#22c55e; }
+  :root { --bg:#0b0d0f; --panel:#15181b; --line:#2a2f35; --text:#e8eaed; --muted:#8b949e; --accent:#7c3aed; --warn:#f59e0b; --bad:#ef4444; --good:#22c55e; --me:#1e1b2e; }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, sans-serif; }
-  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; justify-content:space-between; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, sans-serif; display:flex; flex-direction:column; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
   h1 { font-size:16px; margin:0; font-weight:600; }
-  main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:16px 20px; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
-  h2 { font-size:13px; margin:0 0 10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
-  input, textarea { width:100%; background:#0f1113; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
+  .tools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:8px 14px; cursor:pointer; font:inherit; }
-  button.deny { background:var(--bad); } button.ok { background:var(--good); color:#000; } button.ghost { background:transparent; border:1px solid var(--line); color:var(--muted); }
-  pre { white-space:pre-wrap; word-break:break-word; background:#0f1113; border:1px solid var(--line); border-radius:6px; padding:10px; margin:8px 0; max-height:320px; overflow:auto; font:12px/1.4 ui-monospace, monospace; }
-  .row { display:flex; gap:8px; margin-top:8px; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--muted); }
+  button.ok { background:var(--good); color:#000; } button.deny { background:var(--bad); }
   .tag { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid var(--line); }
-  .tainted { color:var(--warn); border-color:var(--warn); }
-  .clean { color:var(--good); border-color:var(--good); }
+  .tainted { color:var(--warn); border-color:var(--warn); } .clean { color:var(--good); border-color:var(--good); }
+  #keybar { padding:10px 16px; border-bottom:1px solid var(--line); }
+  #keybar input { width:100%; max-width:420px; background:#0f1113; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
+  #chat { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:min(760px, 92%); padding:10px 12px; border-radius:10px; white-space:pre-wrap; word-break:break-word; border:1px solid var(--line); }
+  .msg.user { align-self:flex-end; background:var(--me); border-color:#3b2f6b; }
+  .msg.agent { align-self:flex-start; background:var(--panel); }
+  .msg.error, .msg.denied { align-self:flex-start; background:#1f1214; border-color:#5b1f24; }
+  .msg .meta { display:block; margin-top:6px; font-size:12px; color:var(--muted); }
+  .work { align-self:flex-start; font:12px/1.4 ui-monospace, monospace; color:var(--muted); background:#0f1113; border:1px dashed var(--line); border-radius:8px; padding:8px 10px; max-width:min(760px,92%); white-space:pre-wrap; word-break:break-word; max-height:180px; overflow:auto; }
+  .empty { color:var(--muted); text-align:center; margin-top:15vh; }
+  #approvals { padding:0 16px; display:flex; flex-direction:column; gap:8px; }
+  .approval { border:1px solid var(--warn); background:#1d1708; border-radius:8px; padding:10px 12px; }
+  .approval pre { white-space:pre-wrap; word-break:break-word; margin:0 0 8px; font:12px/1.4 ui-monospace, monospace; max-height:240px; overflow:auto; }
+  .row { display:flex; gap:8px; }
+  form { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); }
+  textarea { flex:1; resize:none; background:#0f1113; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:10px; font:inherit; min-height:44px; max-height:160px; }
+  #history { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; }
+  #history.open { display:flex; justify-content:flex-end; }
+  #history .panel { width:min(520px,100%); height:100%; background:var(--panel); border-left:1px solid var(--line); display:flex; flex-direction:column; }
+  #history .head { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+  #history .body { overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:8px; }
+  .sess { text-align:left; background:#0f1113; border:1px solid var(--line); color:var(--text); }
+  .note { color:var(--muted); font-size:12px; }
+  #conn { font-size:12px; color:var(--muted); }
 </style>
 </head>
 <body>
 <header>
-  <h1>StarClaw Console</h1>
-  <div><span id="taint" class="tag">unknown</span> <button class="ghost" id="newsession">New session</button></div>
+  <h1>StarClaw</h1>
+  <div class="tools">
+    <span id="conn">connecting…</span>
+    <span id="taint" class="tag">unknown</span>
+    <button class="ghost" id="historybtn">History</button>
+    <button class="ghost" id="newsession">New session</button>
+  </div>
 </header>
-<main>
-  <section>
-    <h2>API key</h2>
-    <input id="key" type="password" placeholder="STARCLAW_API_KEY" autocomplete="off">
-    <h2 style="margin-top:16px">Goal</h2>
-    <textarea id="goal" rows="3" placeholder="What should StarClaw do?"></textarea>
-    <div class="row"><button id="send">Run</button></div>
-    <h2 style="margin-top:16px">Job output</h2>
-    <pre id="out">(nothing yet)</pre>
-  </section>
-  <section>
-    <h2>Pending approvals</h2>
-    <div id="approvals"></div>
-  </section>
-</main>
+<div id="keybar" hidden><input id="key" type="password" placeholder="Console key (STARCLAW_API_KEY)" autocomplete="off"></div>
+<div id="chat"><div class="empty" id="empty">Ask StarClaw to do something. Every action it takes is checked against your policy, asks you when needed, and is written to a signed audit log.</div></div>
+<div id="approvals"></div>
+<form id="composer"><textarea id="goal" rows="1" placeholder="Message StarClaw  (Enter to send, Shift+Enter for a new line)"></textarea><button id="send" type="submit">Send</button></form>
+<div id="history"><div class="panel"><div class="head"><strong id="histtitle">Earlier sessions</strong><button class="ghost" id="histclose">Close</button></div><div class="body" id="histbody"></div></div></div>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var jobId = null;
   // `starclaw app` opens this page as /#key=...: the fragment never reaches the server. Take the key, then drop it
   // from the address bar and this history entry.
   var m = /^#key=([^&]+)$/.exec(location.hash);
   if (m) { $('key').value = decodeURIComponent(m[1]); history.replaceState(null, '', location.pathname + location.search); }
-  function headers() { return { 'Authorization': 'Bearer ' + $('key').value, 'Content-Type': 'application/json' }; }
+  else { $('keybar').hidden = false; }
+  var work = {}; // jobId -> progress element
+  var busy = 0;
+
+  function key() { return $('key').value; }
   function api(path, opts) {
-    opts = opts || {}; opts.headers = headers();
+    opts = opts || {};
+    opts.headers = { 'Authorization': 'Bearer ' + key(), 'Content-Type': 'application/json' };
     return fetch('/api' + path, opts).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.status); return j; }); });
   }
-  function renderApprovals(list) {
+  function scrollDown() { var c = $('chat'); c.scrollTop = c.scrollHeight; }
+  function bubble(e, into) {
+    var d = document.createElement('div');
+    d.className = 'msg ' + (e.kind === 'user' ? 'user' : e.kind === 'agent' ? 'agent' : e.kind);
+    d.textContent = e.text; // textContent only: never innerHTML
+    var meta = document.createElement('span'); meta.className = 'meta';
+    var t = e.at ? new Date(e.at).toLocaleTimeString() : '';
+    meta.textContent = t + (e.tainted ? ' · used untrusted content (session is tainted)' : '');
+    d.appendChild(meta);
+    (into || $('chat')).appendChild(d);
+    return d;
+  }
+  function clearChat() { var c = $('chat'); c.textContent = ''; work = {}; }
+  var EMPTY_TEXT = $('empty').textContent;
+  function render(entries) {
+    clearChat();
+    if (!entries.length) { var p = document.createElement('div'); p.className = 'empty'; p.textContent = EMPTY_TEXT; $('chat').appendChild(p); }
+    entries.forEach(function (e) { bubble(e); });
+    scrollDown();
+  }
+  function onMessage(e) {
+    var empty = document.querySelector('#chat .empty'); if (empty) empty.remove();
+    if (e.kind !== 'user' && e.jobId && work[e.jobId]) { work[e.jobId].remove(); delete work[e.jobId]; }
+    bubble(e); scrollDown();
+  }
+  function onLog(x) {
+    var w = work[x.jobId];
+    if (!w) { w = document.createElement('div'); w.className = 'work'; work[x.jobId] = w; $('chat').appendChild(w); }
+    w.textContent += (w.textContent ? '\n' : '') + x.line;
+    w.scrollTop = w.scrollHeight; scrollDown();
+  }
+  function onJob(x) {
+    if (x.status === 'running' && !work[x.jobId]) onLog({ jobId: x.jobId, line: 'working…' });
+    busy += x.status === 'running' ? 1 : x.status === 'done' ? -1 : 0; if (busy < 0) busy = 0;
+  }
+  function onStatus(s) {
+    var t = $('taint'); t.textContent = s.tainted ? 'session TAINTED' : 'session clean'; t.className = 'tag ' + (s.tainted ? 'tainted' : 'clean');
+    t.title = s.tainted ? 'This session has read untrusted content: risky actions now always ask you first.' : '';
+  }
+  function onApprovals(list) {
     var box = $('approvals'); box.textContent = '';
-    if (!list.length) { box.textContent = 'None.'; return; }
     list.forEach(function (a) {
-      var pre = document.createElement('pre'); pre.textContent = a.description; // textContent only: never innerHTML
+      var card = document.createElement('div'); card.className = 'approval';
+      var h = document.createElement('strong'); h.textContent = 'StarClaw wants to: ' + a.summary; card.appendChild(h);
+      var pre = document.createElement('pre'); pre.textContent = a.description; card.appendChild(pre);
       var row = document.createElement('div'); row.className = 'row';
-      [['approve', 'Approve', 'ok'], ['deny', 'Deny', 'deny']].forEach(function (b) {
+      [['approve', 'Allow once', 'ok'], ['deny', 'Deny', 'deny']].forEach(function (b) {
         var btn = document.createElement('button'); btn.textContent = b[1]; btn.className = b[2];
-        btn.onclick = function () { api('/approvals/' + encodeURIComponent(a.id), { method: 'POST', body: JSON.stringify({ decision: b[0] }) }).then(poll); };
+        btn.onclick = function () { btn.disabled = true; api('/approvals/' + encodeURIComponent(a.id), { method: 'POST', body: JSON.stringify({ decision: b[0] }) }).catch(function (e) { alertLine('Could not send decision: ' + e.message); }); };
         row.appendChild(btn);
       });
-      box.appendChild(pre); box.appendChild(row);
+      card.appendChild(row); box.appendChild(card);
     });
   }
-  function poll() {
-    if (!$('key').value) return;
-    api('/status').then(function (s) { var t = $('taint'); t.textContent = s.tainted ? 'session TAINTED' : 'session clean'; t.className = 'tag ' + (s.tainted ? 'tainted' : 'clean'); }).catch(function () {});
-    api('/approvals').then(function (r) { renderApprovals(r.approvals); }).catch(function () {});
-    if (jobId) api('/jobs/' + jobId).then(function (j) {
-      var txt = j.logs.join('\n');
-      if (j.result) txt += '\n\n' + (j.result.stdout || '') + (j.result.reply || '') + (j.result.result != null ? '\n' + JSON.stringify(j.result.result, null, 2) : '') + (j.result.error ? '\nFAILED: ' + j.result.error : '');
-      $('out').textContent = '[' + j.status + ']\n' + txt;
-    }).catch(function () {});
+  function alertLine(text) { onMessage({ kind: 'error', text: text, at: new Date().toISOString() }); }
+
+  var HANDLERS = { message: onMessage, log: onLog, job: onJob, status: onStatus, approvals: onApprovals, session: function () { render([]); } };
+
+  // Live stream: fetch() so the key travels in a header; reconnect with backoff.
+  var retry = 1000;
+  function stream() {
+    if (!key()) return;
+    fetch('/api/stream', { headers: { 'Authorization': 'Bearer ' + key() } }).then(function (r) {
+      if (r.status === 401) { $('conn').textContent = 'wrong console key'; $('keybar').hidden = false; return; }
+      if (!r.ok || !r.body) throw new Error('stream ' + r.status);
+      $('conn').textContent = 'live'; retry = 1000;
+      var reader = r.body.getReader(), dec = new TextDecoder(), buf = '';
+      function pump() {
+        return reader.read().then(function (x) {
+          if (x.done) throw new Error('closed');
+          buf += dec.decode(x.value, { stream: true });
+          var i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            var frame = buf.slice(0, i); buf = buf.slice(i + 2);
+            var ev = /^event: (.+)$/m.exec(frame), data = /^data: (.*)$/m.exec(frame);
+            if (!ev || !data) continue;
+            var payload; try { payload = JSON.parse(data[1]); } catch (e) { continue; }
+            var handler = HANDLERS[ev[1]];
+            if (handler) handler(payload);
+          }
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function () {
+      $('conn').textContent = 'reconnecting…';
+      setTimeout(stream, retry); retry = Math.min(retry * 2, 15000);
+    });
   }
-  $('send').onclick = function () {
-    api('/goal', { method: 'POST', body: JSON.stringify({ goal: $('goal').value }) }).then(function (r) { jobId = r.id; poll(); }).catch(function (e) { $('out').textContent = 'Error: ' + e.message; });
+  function start() {
+    if (!key()) return;
+    api('/transcript').then(function (t) { render(t.entries); }).catch(function (e) { $('conn').textContent = e.message; });
+    stream();
+  }
+
+  $('composer').onsubmit = function (ev) {
+    ev.preventDefault();
+    var text = $('goal').value.trim(); if (!text) return;
+    $('send').disabled = true;
+    api('/goal', { method: 'POST', body: JSON.stringify({ goal: text }) })
+      .then(function () { $('goal').value = ''; })
+      .catch(function (e) { alertLine('Not sent: ' + e.message); })
+      .then(function () { $('send').disabled = false; $('goal').focus(); });
   };
-  $('newsession').onclick = function () { api('/session/new', { method: 'POST', body: '{}' }).then(poll); };
-  setInterval(poll, 1500);
+  $('goal').onkeydown = function (ev) { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('composer').requestSubmit(); } };
+  $('key').onchange = start;
+  $('newsession').onclick = function () {
+    api('/session/new', { method: 'POST', body: '{}' }).then(function () { render([]); }).catch(function (e) { alertLine(e.message); });
+  };
+  $('historybtn').onclick = function () {
+    var body = $('histbody'); body.textContent = 'Loading…'; $('histtitle').textContent = 'Earlier sessions'; $('history').className = 'open';
+    api('/sessions').then(function (r) {
+      body.textContent = '';
+      var note = document.createElement('div'); note.className = 'note';
+      note.textContent = 'Read-only. StarClaw does not carry old sessions into new ones, so content it read before cannot sneak into a clean session. The signed audit log is the full record.';
+      body.appendChild(note);
+      if (!r.sessions.length) { var n = document.createElement('div'); n.className = 'note'; n.textContent = 'No earlier sessions yet.'; body.appendChild(n); }
+      r.sessions.forEach(function (s) {
+        var b = document.createElement('button'); b.className = 'sess';
+        b.textContent = (s.startedAt ? new Date(s.startedAt).toLocaleString() : s.id) + ' · ' + s.entries + ' messages\n' + (s.preview || '');
+        b.style.whiteSpace = 'pre-wrap';
+        b.onclick = function () {
+          api('/sessions/' + encodeURIComponent(s.id)).then(function (x) {
+            body.textContent = ''; $('histtitle').textContent = 'Session ' + (s.startedAt ? new Date(s.startedAt).toLocaleString() : s.id);
+            x.entries.forEach(function (e) { bubble(e, body); });
+          });
+        };
+        body.appendChild(b);
+      });
+    }).catch(function (e) { body.textContent = e.message; });
+  };
+  $('histclose').onclick = function () { $('history').className = ''; };
+  start();
 })();
 </script>
 </body>
