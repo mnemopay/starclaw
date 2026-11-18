@@ -1,6 +1,7 @@
 'use strict';
 
 const tabs = [...document.querySelectorAll('[data-stage]')];
+const exampleUrl = new URL('example-run.json', document.currentScript.src);
 const mobileTabs = matchMedia('(max-width:560px)');
 const updateTabOrientation = () => document.querySelector('.run-steps').setAttribute('aria-orientation', mobileTabs.matches ? 'horizontal' : 'vertical');
 updateTabOrientation();
@@ -130,7 +131,7 @@ tamperButton.addEventListener('click', () => checkExample(true));
 
 async function loadExample() {
   try {
-    const response = await fetch('example-run.json');
+    const response = await fetch(exampleUrl);
     if (!response.ok) throw new Error('Recorded example unavailable');
     example = await response.json();
     if (example.format !== 1 || !example.runs.approve || !example.runs.deny) throw new Error('Unrecognized example format');
