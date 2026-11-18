@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0-alpha.7 (unreleased)
+## 2.0.0-alpha.8 (unreleased)
 
 ### Reliability and security
 * Integrated registry skills with the subagent-capable engine. Registry skills cannot delegate; shell use requires explicit whole-workspace consent.
@@ -10,6 +10,12 @@
 * Built-in model backends reserve estimated request cost before dispatch, adjust output limits to funds, reconcile usage, and fail closed on corrupt/locked daily ledgers. Provider errors retain their reservations. Estimates still depend on configured prices and provider accounting.
 * Container termination waits for exact-name removal and handles Docker auto-removal races.
 * Added adversarial and multi-step regression tests. See `docs/competitive-roadmap.md` for boundaries and remaining product work.
+
+### Added
+* **`starclaw audit export <log> --out <dir>`**: an EU AI Act Article 12 bundle in MnemoPay's format (`mission.json`, `events.json`, `events.csv`, `chain.txt`, `manifest.json`), written with `buildArticle12Bundle` from `@mnemopay/sdk`. The StarClaw log is verified first (chain, signatures, head checkpoint; `--pubkey`/`--pubkey-file` to pin the key) and the export is **refused** if it fails. Every event keeps the original record's `seq/prev/hash/sig` and timestamp, and event 0 is the `audit.open` with the public key, so the bundle's signatures can be re-checked without the original log. Existing bundle files are never overwritten. `spentUsd` counts LLM usage only; the budget cap is stated only if given (`--budget-usd`). The StarClaw log remains the record of truth: MnemoPay's `MerkleAudit` is in-memory and unsigned, so it is used for the export format, not as the log.
+* Tests: `tests/article12.test.ts`.
+
+## 2.0.0-alpha.7
 
 ### Added
 * **Signed skills registry** (`src/skills/registry`), deliberately NOT an open store: no catalogue, no search, no auto-install, and **no network fetch at all** (bundles are local `.starclaw-skill` files you point to). Policy block `skillsRegistry` (strict, **disabled by default**; when disabled, `skills install` and running a registry skill are refused and nothing else changes).
