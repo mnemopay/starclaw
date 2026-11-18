@@ -24,6 +24,10 @@ export const ACTION_CLASSES = [
   'browser.navigate',
   /** Reading text/links from, or closing, the open browser tab. */
   'browser.read',
+  /** Clicking an element in the open browser tab (may run page handlers or start a same-site navigation). */
+  'browser.click',
+  /** Typing text into an element of the open browser tab: hands data to a website, i.e. an exfiltration path. */
+  'browser.type',
   /** A run asking to start a sub-agent with a narrower capability set (tools.spawnAgent). */
   'agent.spawn',
   /** Installing (or replacing) a skill from the signed skills registry. A human ALWAYS decides; never in unattended runs. */
@@ -43,6 +47,8 @@ export const TAINT_SENSITIVE: ReadonlySet<ActionClass> = new Set<ActionClass>([
   'notify.owner',
   'browser.open',
   'browser.navigate',
+  'browser.click',
+  'browser.type',
   'agent.spawn',
   'skill.install',
 ]);
@@ -51,7 +57,7 @@ export const TAINT_SENSITIVE: ReadonlySet<ActionClass> = new Set<ActionClass>([
 export const ALWAYS_ASK: ReadonlySet<ActionClass> = new Set<ActionClass>(['schedule.create', 'browser.open', 'skill.install']);
 
 /** Action classes that a scheduled (unattended) run can never have auto-allowed by a policy `allow`. */
-export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open', 'agent.spawn', 'skill.install']);
+export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open', 'browser.type', 'agent.spawn', 'skill.install']);
 
 /** Action classes that are refused outright for runs with origin `scheduled`, whatever the policy says. */
 export const DENIED_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create', 'skill.install']);
@@ -67,8 +73,14 @@ export interface Action {
   target: string;
   /** One human-readable line shown to the approver. */
   summary: string;
-  /** Exact payload shown to the approver (code, full URL, command line, ...). */
+  /** Exact payload shown to the approver (code, full URL, command line, ...). Written to the audit log. */
   detail?: string;
+  /**
+   * Shown to the human approver and NEVER written to the audit log (the Governor's audit records list their fields
+   * explicitly and leave this out). Used for text an agent is about to type into a web page: a human must see it, the
+   * log keeps only its length and SHA-256.
+   */
+  approverOnly?: { label: string; text: string };
   /** Integer cents (spend only). */
   cents?: number;
   /** fs.*: resolved path is inside the workspace. */
@@ -151,6 +163,8 @@ export function describeRequest(req: ApprovalRequest): string {
   lines.push(`Action : ${a.class}`);
   lines.push(`Target : ${a.target}`);
   lines.push(`Summary: ${a.summary}`);
+  // Early in the text: channel approvers cut long messages from the end, and this is what the human must read.
+  if (a.approverOnly) lines.push(`--- ${a.approverOnly.label} (${[...a.approverOnly.text].length} chars; shown to you only, NOT written to the audit log) ---`, a.approverOnly.text, '--- end ---');
   if (req.subagent) {
     lines.push(`Origin : SUB-AGENT (depth ${req.subagent.depth}) - NOT the run you started. Chain: ${req.subagent.chain.join(' > ')}`);
     lines.push(`         Its goal, written by the parent run: ${req.subagent.goal.slice(0, 300)}`);

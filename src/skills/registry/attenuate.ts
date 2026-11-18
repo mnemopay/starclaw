@@ -23,6 +23,8 @@ export const TOOL_CLASSES: Record<string, ActionClass[]> = {
   browseReadText: ['browser.read'],
   browseReadLinks: ['browser.read'],
   browseClose: ['browser.read'],
+  browseClick: ['browser.click'],
+  browseType: ['browser.type'],
 };
 
 /** Classes a registry skill can never trigger, whatever it declares. */
@@ -65,7 +67,9 @@ export class AttenuatedGovernor extends Governor {
       }
       case 'net.egress':
       case 'browser.open':
-      case 'browser.navigate': {
+      case 'browser.navigate':
+      case 'browser.click':
+      case 'browser.type': {
         const host = a.host ?? a.target;
         if (c.domains.length === 0) return 'no domains declared';
         return c.domains.some((d) => domainMatches(d, host)) ? undefined : `domain ${host} is outside declared domains [${c.domains.join(', ')}]`;
@@ -132,6 +136,7 @@ export function unmetRequirements(policy: Policy, caps: Capabilities): string[] 
       unmet.push(caps.spendCents === 0 ? 'spend: declared as a tool but spendCents is 0' : 'spend: the policy spend caps are 0 (spending is impossible)');
     }
     if (tool.startsWith('browse') && !policy.browser.enabled) unmet.push(`${tool}: policy browser.enabled is false`);
+    if (tool === 'browseType' && !policy.browser.allowInput) unmet.push('browseType: policy browser.allowInput is false');
     if (tool === 'fetchUrl' && caps.domains.length === 0) unmet.push('fetchUrl: no domains declared');
     if ((tool === 'readFile' || tool === 'listDir' || tool === 'writeFile' || tool === 'editFile' || tool === 'applyPatch') && caps.paths.length === 0) unmet.push(`${tool}: no path scopes declared`);
   }

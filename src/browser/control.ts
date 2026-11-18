@@ -107,6 +107,8 @@ export interface Envelope {
   allowed_domains: string[];
   ttl_seconds?: number;
   action_cost_cents?: number;
+  /** Default false on the browser side: the tab may not type. Sent only when true (older builds reject unknown fields). */
+  allow_input?: boolean;
 }
 
 export interface ControlOk {
@@ -200,6 +202,14 @@ export class ControlClient {
   }
   readLinks(id: string, maxLinks: number, clientRef?: string) {
     return this.#call('POST', this.tabPath(id, '/read_links'), { max_links: maxLinks }, clientRef);
+  }
+  /** Click the first element matching a CSS selector (top-level document). */
+  click(id: string, selector: string, clientRef?: string) {
+    return this.#call('POST', this.tabPath(id, '/click'), { selector }, clientRef);
+  }
+  /** Replace a text field's value (needs a tab opened with allow_input). The browser never stores the text in receipts. */
+  type(id: string, selector: string, text: string, submit: boolean, clientRef?: string) {
+    return this.#call('POST', this.tabPath(id, '/type'), { selector, text, submit }, clientRef);
   }
   tabStatus(id: string) {
     return this.#call('GET', this.tabPath(id));

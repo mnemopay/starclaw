@@ -8,7 +8,7 @@ StarClaw generates JavaScript, runs it in an isolated sandbox, and can inspect r
 the next step. **Capabilities pass through a policy engine** that allows, asks a human, or denies,
 with a signed, hash-chained audit record written before an approved action runs.
 
-> **Status: `2.0.0-alpha.7` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
+> **Status: `2.0.0-alpha.8` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
 > npm `next` tag; not yet recommended for customers.** See [Known limits](#known-limits) and
 > [SECURITY.md](SECURITY.md) first. Tested on Windows 11 x64 with Node 25.9.0 only. The old `starclaw@1.0.0` on npm
 > is deprecated and broken: do not use it.
@@ -104,6 +104,19 @@ npx starclaw skills list | revoke <id> | keys list | keys remove <fingerprint>
 ```
 
 A skill declares the tools, domains, workspace paths and spend it needs; it runs only with the **intersection** of that and your policy, and is re-verified (signature, hashes, expiry, revocation) on every run. Unsigned skills the agent writes itself (`--learn-skills`) are unchanged. Details and limits: [SECURITY.md](SECURITY.md) section 6b.
+
+## Governed browser (optional, off by default)
+
+The `tools.browse*` tools drive one tab of the MnemoPay Native Browser through its loopback control API. Start the browser with `MNEMOPAY_CONTROL_API=1`, then enable it in the policy:
+
+```json
+{ "version": 1,
+  "browser": { "enabled": true, "allowedDomains": ["docs.example.com"], "maxActions": 20, "allowInput": false } }
+```
+
+* `browseOpen` always asks you. `browseNavigate`, `browseReadText`, `browseReadLinks` and `browseClick` are allowed in a clean session. Navigating and clicking ask you once the session is tainted, and opening a page taints it.
+* `browseType({ selector, text, submit? })` types into a text field. It is refused unless `browser.allowInput` is `true`. It always asks in a tainted session or a scheduled run, and by default it asks every time. The approval shows you the exact text. The audit log keeps only its length and SHA-256.
+* Everything a page returns is untrusted data. `starclaw doctor` prints a Browser line. Details and limits are in [SECURITY.md](SECURITY.md) section 1d-bis. These tools were tested against a local fake of the control API, not the real browser.
 
 ## See it work (2 minutes, offline)
 
