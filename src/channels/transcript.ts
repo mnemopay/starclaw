@@ -81,3 +81,33 @@ export class Transcript {
     });
   }
 }
+
+export interface SearchHit { sessionId: string; at: string; kind: EntryKind; text: string; tainted: boolean; before?: Entry; after?: Entry }
+
+/**
+ * Search every session in `dir` (newest first) for entries containing ALL query terms (case-insensitive). Each hit carries
+ * its neighbouring entries for context. Bounded in files read and hits returned. Missing dir = no hits.
+ */
+export function searchTranscripts(dir: string, query: string, o: { limit?: number; maxSessions?: number } = {}): SearchHit[] {
+  const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length >= 2).slice(0, 10);
+  if (!terms.length || !fs.existsSync(dir)) return [];
+  const limit = Math.min(o.limit ?? 20, 100);
+  const ids = fs.readdirSync(dir).filter((n) => n.endsWith('.jsonl')).map((n) => n.slice(0, -6)).filter(isSessionId).sort().reverse().slice(0, o.maxSessions ?? 500);
+  const hits: SearchHit[] = [];
+  for (const id of ids) {
+    let entries: Entry[];
+    try {
+      entries = fs.readFileSync(path.join(dir, `${id}.jsonl`), 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l) as Entry]; } catch { return []; } });
+    } catch {
+      continue;
+    }
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      const t = String(e.text ?? '').toLowerCase();
+      if (!terms.every((term) => t.includes(term))) continue;
+      hits.push({ sessionId: id, at: e.at, kind: e.kind, text: e.text, tainted: !!e.tainted, before: entries[i - 1], after: entries[i + 1] });
+      if (hits.length >= limit) return hits;
+    }
+  }
+  return hits;
+}

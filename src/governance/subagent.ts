@@ -9,7 +9,7 @@ import { Action, ActionClass } from './types';
 type SubagentsPolicy = z.infer<typeof SubagentsPolicySchema>;
 
 /** Tools a sub-agent can never hold, whatever its parent asks for: they are the legacy/unattended-risk classes. */
-export const FORBIDDEN_FOR_SUBAGENTS: readonly string[] = ['runCommand', 'scheduleCreate'];
+export const FORBIDDEN_FOR_SUBAGENTS: readonly string[] = ['runCommand', 'scheduleCreate', 'searchConversations'];
 
 /** Which action classes each brokered tool can produce. A sub-agent may only perform classes its tool list implies. */
 export const TOOL_CLASSES: Readonly<Record<string, readonly ActionClass[]>> = {
@@ -35,6 +35,8 @@ export const TOOL_CLASSES: Readonly<Record<string, readonly ActionClass[]>> = {
   spawnAgent: ['agent.spawn'],
   runCommand: ['host.exec'],
   scheduleCreate: ['schedule.create'],
+  /** Reads the owner's private conversation history: no outside action, and forbidden to sub-agents (FORBIDDEN_FOR_SUBAGENTS). */
+  searchConversations: [],
 };
 
 /**

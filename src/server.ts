@@ -5,7 +5,7 @@ import express from 'express';
 import * as dotenv from 'dotenv';
 import { createEngine } from './bootstrap';
 import { approvalRouter, bearerAuth, HttpApprover } from './channels/http';
-import { isSessionId, Transcript } from './channels/transcript';
+import { isSessionId, searchTranscripts, Transcript } from './channels/transcript';
 import type { GoalResult, StarClawEngine } from './engine';
 
 interface Job {
@@ -79,6 +79,10 @@ export function createGateway(engine: StarClawEngine, approver: HttpApprover, ap
   });
   api.get('/transcript', (_req, res) => res.json({ sessionId: transcript?.sessionId ?? null, entries: transcript?.read() ?? [] }));
   api.get('/sessions', (_req, res) => res.json({ sessions: transcript?.sessions() ?? [] }));
+  api.get('/search', (req, res) => {
+    const q = String(req.query.q ?? '').slice(0, 200);
+    res.json({ query: q, hits: gopts.transcriptDir ? searchTranscripts(gopts.transcriptDir, q, { limit: 50 }) : [] });
+  });
   api.get('/sessions/:id', (req, res) => {
     const id = String(req.params.id);
     if (!transcript || !isSessionId(id)) {

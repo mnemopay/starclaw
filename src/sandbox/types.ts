@@ -30,7 +30,7 @@ export class SandboxUnavailable extends Error {
 }
 
 /** Tool names the runner may expose. Kept here so the broker and the sandbox agree. */
-export const DEFAULT_TOOL_NAMES = ['readFile', 'writeFile', 'listDir', 'applyPatch', 'editFile', 'fetchUrl', 'search', 'runCommand', 'shell', 'notifyOwner', 'scheduleCreate', 'spend', 'browseOpen', 'browseNavigate', 'browseReadText', 'browseReadLinks', 'browseClick', 'browseType', 'browseClose', 'spawnAgent', 'mcpList', 'mcpCall'];
+export const DEFAULT_TOOL_NAMES = ['readFile', 'writeFile', 'listDir', 'applyPatch', 'editFile', 'fetchUrl', 'search', 'runCommand', 'shell', 'notifyOwner', 'scheduleCreate', 'spend', 'browseOpen', 'browseNavigate', 'browseReadText', 'browseReadLinks', 'browseClick', 'browseType', 'browseClose', 'spawnAgent', 'mcpList', 'mcpCall', 'searchConversations'];
 
 export type SandboxKind = 'process' | 'container';
 
