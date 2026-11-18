@@ -1,0 +1,725 @@
+{
+  "format": 1,
+  "provenance": "Real StarClaw engine, scripted model and approver. Process permission sandbox. No network or real payments.",
+  "publicKey": "efea66d9730d9084291ad1ff1c135a6f34ffa1402edb397da129e4e8d7dd56c7",
+  "goal": "Read launch-notes.txt and save the product facts as launch-brief.md.",
+  "input": "StarClaw launch notes\n\n- Open-source agent for research, code changes, and scheduled work.\n- Actions pass through a policy that can allow, ask, or deny.\n- Audit records are signed and hash-chained.\n- Developer alpha. Does not prevent prompt injection.\n",
+  "code": "async function execute() {\n  const notes = await tools.readFile({ path: 'launch-notes.txt' });\n  const facts = notes.content.split('\\n').filter(line => line.startsWith('- '));\n  const content = '# StarClaw / launch brief\\n\\n' + facts.join('\\n') + '\\n';\n  await tools.writeFile({ path: 'launch-brief.md', content });\n  return { file: 'launch-brief.md', facts: facts.length };\n}\nmodule.exports = { execute };",
+  "runs": {
+    "approve": {
+      "result": {
+        "success": true,
+        "kind": "task",
+        "result": {
+          "file": "launch-brief.md",
+          "facts": 4
+        },
+        "stdout": "",
+        "tainted": false,
+        "llmCostCentsCeil": 0
+      },
+      "approval": {
+        "id": "5ee27d76-7afa-41f7-a25d-659d7eb04219",
+        "action": {
+          "class": "fs.write",
+          "target": "C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-brief.md",
+          "inWorkspace": true,
+          "summary": "Write 256 bytes to C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-brief.md",
+          "detail": "# StarClaw / launch brief\n\n- Open-source agent for research, code changes, and scheduled work.\n- Actions pass through a policy that can allow, ask, or deny.\n- Audit records are signed and hash-chained.\n- Developer alpha. Does not prevent prompt injection.\n"
+        },
+        "provenance": {
+          "tainted": false,
+          "sources": []
+        },
+        "reason": "policy default for fs.write is \"ask\"",
+        "escalatedByTaint": false,
+        "expiresAt": 1795022122379
+      },
+      "output": "# StarClaw / launch brief\n\n- Open-source agent for research, code changes, and scheduled work.\n- Actions pass through a policy that can allow, ask, or deny.\n- Audit records are signed and hash-chained.\n- Developer alpha. Does not prevent prompt injection.\n",
+      "records": [
+        {
+          "v": 1,
+          "seq": 0,
+          "ts": "2026-11-18T17:13:21.411Z",
+          "prev": "0000000000000000000000000000000000000000000000000000000000000000",
+          "type": "audit.open",
+          "data": {
+            "fingerprint": "081f882b07aa1bd7",
+            "pid": 4324,
+            "publicKey": "efea66d9730d9084291ad1ff1c135a6f34ffa1402edb397da129e4e8d7dd56c7"
+          },
+          "hash": "a252e10074b7b94e98c8da4bc0da8c1bad646a91f6b7d5cf8fd6e3502f121343",
+          "sig": "NsOzO3ooc8kL9dGD7XtjQlbA1hrOusqVrogEt2/fogUvwemEw1qq1qDyNxdZFs+sWYR35wqg3HRBE4oekA+1Bg=="
+        },
+        {
+          "v": 1,
+          "seq": 1,
+          "ts": "2026-11-18T17:13:21.458Z",
+          "prev": "a252e10074b7b94e98c8da4bc0da8c1bad646a91f6b7d5cf8fd6e3502f121343",
+          "type": "engine.start",
+          "data": {
+            "approver": "website-scripted-approver",
+            "id": "starclaw",
+            "learnSkills": false,
+            "node": "v25.9.0",
+            "notifier": "none",
+            "platform": "win32"
+          },
+          "hash": "73a165ef8efd505298856e89a0035fd8c4f0217adf6050ba635cbac1f08de799",
+          "sig": "VIyGFFIJ49j8H4ylVQJVRJghhSHXTqTUmHOOlkIGp4TGA5ZtuBzSh1eo52Gaa7s+T4buykfhjQq3wx276SxQAg=="
+        },
+        {
+          "v": 1,
+          "seq": 2,
+          "ts": "2026-11-18T17:13:21.465Z",
+          "prev": "73a165ef8efd505298856e89a0035fd8c4f0217adf6050ba635cbac1f08de799",
+          "type": "memory.verify",
+          "data": {
+            "chainErrors": [],
+            "ok": true,
+            "tampered": 0,
+            "total": 0
+          },
+          "hash": "d7b2f10d035b5ae600a7340769c3dc9b2b6b72ea2cb80ee0d160651aed287d34",
+          "sig": "oSOxnHVxl+F9e2rbyF89CICVEvLqsip7Og42+XzSp6W2z7PoCArhhzTgHV0cf+KZKh8VWYisPgQ5ygAQJRq/AQ=="
+        },
+        {
+          "v": 1,
+          "seq": 3,
+          "ts": "2026-11-18T17:13:22.115Z",
+          "prev": "d7b2f10d035b5ae600a7340769c3dc9b2b6b72ea2cb80ee0d160651aed287d34",
+          "type": "sandbox.probe",
+          "data": {
+            "active": "ACTIVE LAYER: process (mode process). process: Node permission model (no OS-level isolation)",
+            "checks": 42,
+            "layer": "process",
+            "node": "v25.9.0",
+            "ok": true,
+            "skipped": []
+          },
+          "hash": "a2514fabcc85656d9705aac100d800b7677a9411ea00f42f3403ed78f6239b37",
+          "sig": "+taqgbM+fG7jQMbQuFIR+pgAyb/nPxNV8SXRix/MD+EfwPiSGgbJ5wCJSGMAMOaP4Dg3RMKo5lQ77VE8h01MCw=="
+        },
+        {
+          "v": 1,
+          "seq": 4,
+          "ts": "2026-11-18T17:13:22.122Z",
+          "prev": "a2514fabcc85656d9705aac100d800b7677a9411ea00f42f3403ed78f6239b37",
+          "type": "goal.received",
+          "data": {
+            "goal": "Read launch-notes.txt and save the product facts as launch-brief.md.",
+            "origin": "owner",
+            "runId": "dcb61062-3a2d-410b-9dfe-691fb839239b"
+          },
+          "hash": "304122fc68c8bf62884d3bdd869e07c870b597ab54e8fc47b16d8307dd8d7121",
+          "sig": "nqgu/zbtVllEbN/CHLjDpDJM/b/eEegH0DhVj1kw1Z3fIBr05PGPwUz3qtj6lyhP8tSdoQGJxtJU6/WHI8ryCw=="
+        },
+        {
+          "v": 1,
+          "seq": 5,
+          "ts": "2026-11-18T17:13:22.132Z",
+          "prev": "304122fc68c8bf62884d3bdd869e07c870b597ab54e8fc47b16d8307dd8d7121",
+          "type": "llm.usage",
+          "data": {
+            "dayCentsCeil": 0,
+            "inputTokens": 0,
+            "microcents": 0,
+            "outputTokens": 0,
+            "priceAssumed": false,
+            "runCentsCeil": 0,
+            "what": "classify"
+          },
+          "hash": "f05d1c6de36c79f7860e87a53df198b302b1304c7c9a7345f6cb83e0b5536d93",
+          "sig": "fYYkJ8s21IsZXUPVQBXGFRTThu5rv/nZWSo0FrVThg4oJuLnHZK0TXqaxC5Rot526KYv57VC5tFKUdllZqHZAw=="
+        },
+        {
+          "v": 1,
+          "seq": 6,
+          "ts": "2026-11-18T17:13:22.145Z",
+          "prev": "f05d1c6de36c79f7860e87a53df198b302b1304c7c9a7345f6cb83e0b5536d93",
+          "type": "llm.usage",
+          "data": {
+            "dayCentsCeil": 0,
+            "inputTokens": 0,
+            "microcents": 0,
+            "outputTokens": 0,
+            "priceAssumed": false,
+            "runCentsCeil": 0,
+            "what": "codegen"
+          },
+          "hash": "bbcf21892a6463e8ced92572b66bb7d112838b9b9a1c0966bee805ff7f8a43f0",
+          "sig": "lujsb1M2ykMOqHM4h2F2usAo5yiW/OSkpff/f94zVxMoyBYC4cVD42WT76LV7EAYrlkUfj+iS/gKIwxfc6OdCA=="
+        },
+        {
+          "v": 1,
+          "seq": 7,
+          "ts": "2026-11-18T17:13:22.153Z",
+          "prev": "bbcf21892a6463e8ced92572b66bb7d112838b9b9a1c0966bee805ff7f8a43f0",
+          "type": "decision.request",
+          "data": {
+            "class": "exec",
+            "decisionId": "38749ca4-6af3-427b-9db6-559f37b2d99c",
+            "detail": "async function execute() {\n  const notes = await tools.readFile({ path: 'launch-notes.txt' });\n  const facts = notes.content.split('\\n').filter(line => line.startsWith('- '));\n  const content = '# StarClaw / launch brief\\n\\n' + facts.join('\\n') + '\\n';\n  await tools.writeFile({ path: 'launch-brief.md', content });\n  return { file: 'launch-brief.md', facts: facts.length };\n}\nmodule.exports = { execute };",
+            "escalatedByTaint": false,
+            "policySource": "default",
+            "summary": "Run generated JavaScript (sha256 bd28330dbda0, 406 chars) in the isolated sandbox; its tool calls are governed individually",
+            "taintSources": [],
+            "tainted": false,
+            "target": "sandbox:js",
+            "verdictBeforeApproval": "ask"
+          },
+          "hash": "83c6d668868b7f000588fbdee075164900edf31d383f40f140ab845a46d8308a",
+          "sig": "xlU8DOAXhsKQcBvNAhXXKxT0CYKxd4zbSmFUPPeY2FPPUWQK7azCF8+hEsDBjymWXOtsQ5yb5wvv/ou4ijJ7Aw=="
+        },
+        {
+          "v": 1,
+          "seq": 8,
+          "ts": "2026-11-18T17:13:22.159Z",
+          "prev": "83c6d668868b7f000588fbdee075164900edf31d383f40f140ab845a46d8308a",
+          "type": "decision.result",
+          "data": {
+            "allowed": true,
+            "by": "human",
+            "class": "exec",
+            "decisionId": "38749ca4-6af3-427b-9db6-559f37b2d99c",
+            "escalatedByTaint": false,
+            "reason": "approved by human",
+            "target": "sandbox:js"
+          },
+          "hash": "226e00bde420d271444699d9a36fbb9e2166de3f10626d7764dca805703f8ee0",
+          "sig": "qpobOJtXK5hDc3bslL8tiP62SQzpUtXzukls6kFC/15ijII5iodzBtWNW7xL2p7P1jb+0/qY9tEYNv4M+K7ZAQ=="
+        },
+        {
+          "v": 1,
+          "seq": 9,
+          "ts": "2026-11-18T17:13:22.165Z",
+          "prev": "226e00bde420d271444699d9a36fbb9e2166de3f10626d7764dca805703f8ee0",
+          "type": "exec.start",
+          "data": {
+            "codeSha256": "bd28330dbda046b36535f31558c9bbccab2a0f3ae2cd59137d55c0367693ddec",
+            "decisionId": "38749ca4-6af3-427b-9db6-559f37b2d99c",
+            "tainted": false
+          },
+          "hash": "37b61151c43a28fb9a88170f0c13a8a54db15c0e0a0fde18beeb069ca0c453c2",
+          "sig": "TVKPmUePb7/mOfkky/YTYNA3zY4XQQJ3kpuuZ9qM3oyLMYQUJx68JzUOjdTqdapBzJemhLQPnd4dtCoMpCwPAw=="
+        },
+        {
+          "v": 1,
+          "seq": 10,
+          "ts": "2026-11-18T17:13:22.355Z",
+          "prev": "37b61151c43a28fb9a88170f0c13a8a54db15c0e0a0fde18beeb069ca0c453c2",
+          "type": "decision.request",
+          "data": {
+            "class": "fs.read",
+            "decisionId": "62ce20c7-cfc5-4c31-abb2-97b5ad896464",
+            "escalatedByTaint": false,
+            "inWorkspace": true,
+            "policyRule": 0,
+            "policySource": "rule",
+            "summary": "Read file C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-notes.txt",
+            "taintSources": [],
+            "tainted": false,
+            "target": "C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-notes.txt",
+            "verdictBeforeApproval": "allow"
+          },
+          "hash": "f5af24adae388bf06bcc93c1fb4e648caf43424baa6ad8198663fc1c8b9f518f",
+          "sig": "vpcMIA8qQZIKfsB4TkJ0EghOr1ftTilHGpRP9p7a6qO4uPvIfgkfkCWXQR/syTnd1ncRtUFjeJywzv1J2x+UAw=="
+        },
+        {
+          "v": 1,
+          "seq": 11,
+          "ts": "2026-11-18T17:13:22.360Z",
+          "prev": "f5af24adae388bf06bcc93c1fb4e648caf43424baa6ad8198663fc1c8b9f518f",
+          "type": "decision.result",
+          "data": {
+            "allowed": true,
+            "by": "policy",
+            "class": "fs.read",
+            "decisionId": "62ce20c7-cfc5-4c31-abb2-97b5ad896464",
+            "escalatedByTaint": false,
+            "reason": "allowed by policy",
+            "target": "C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-notes.txt"
+          },
+          "hash": "8a89ba6f42adba41da89270a1b9c223cdcdc057493bca53468bcee4f18fde947",
+          "sig": "98JrNbAeHly5Qn4hqgbUv0FwouAvCM3AdiYEdY9SvPS7Tkxxhe5Wmg87eLQLr5nacSxhofMXdHQVBkX6DstUAw=="
+        },
+        {
+          "v": 1,
+          "seq": 12,
+          "ts": "2026-11-18T17:13:22.366Z",
+          "prev": "8a89ba6f42adba41da89270a1b9c223cdcdc057493bca53468bcee4f18fde947",
+          "type": "action.result",
+          "data": {
+            "bytes": 252,
+            "class": "fs.read",
+            "decisionId": "62ce20c7-cfc5-4c31-abb2-97b5ad896464",
+            "ok": true,
+            "target": "C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-notes.txt"
+          },
+          "hash": "9e671f4346c470fb1dff4990dbde42fabdd046c02eacc417eb3e39659b3b650e",
+          "sig": "Mu2QWgp8DjMp8pJ6yNOUNhyxRf9P2jk1UHOwjnfOsKQAT161KIoC1oBOUBzLOfR4BGTXesfF88RwMqVd1iIpCg=="
+        },
+        {
+          "v": 1,
+          "seq": 13,
+          "ts": "2026-11-18T17:13:22.375Z",
+          "prev": "9e671f4346c470fb1dff4990dbde42fabdd046c02eacc417eb3e39659b3b650e",
+          "type": "decision.request",
+          "data": {
+            "class": "fs.write",
+            "decisionId": "5ee27d76-7afa-41f7-a25d-659d7eb04219",
+            "detail": "# StarClaw / launch brief\n\n- Open-source agent for research, code changes, and scheduled work.\n- Actions pass through a policy that can allow, ask, or deny.\n- Audit records are signed and hash-chained.\n- Developer alpha. Does not prevent prompt injection.\n",
+            "escalatedByTaint": false,
+            "inWorkspace": true,
+            "policySource": "default",
+            "summary": "Write 256 bytes to C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-brief.md",
+            "taintSources": [],
+            "tainted": false,
+            "target": "C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-brief.md",
+            "verdictBeforeApproval": "ask"
+          },
+          "hash": "985498ecf5452f6977d6d67bb6cca9fc79ae9a7464da70deb6b1bdc2144c167c",
+          "sig": "Cel0rtcdYgQr6+mmittrTv2J1aaR0zgChTtrFhSneb7k6Bm9RIahdwiJgUhn8vwrJZ3vo80mb1KLKRJs3UFyCg=="
+        },
+        {
+          "v": 1,
+          "seq": 14,
+          "ts": "2026-11-18T17:13:22.379Z",
+          "prev": "985498ecf5452f6977d6d67bb6cca9fc79ae9a7464da70deb6b1bdc2144c167c",
+          "type": "decision.result",
+          "data": {
+            "allowed": true,
+            "by": "human",
+            "class": "fs.write",
+            "decisionId": "5ee27d76-7afa-41f7-a25d-659d7eb04219",
+            "escalatedByTaint": false,
+            "reason": "approved by human",
+            "target": "C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-brief.md"
+          },
+          "hash": "a3f7719ed4d620d7783017155cb585b58f099abe4a1ff87a9a7fa382ae5c549c",
+          "sig": "fTewq0aCf1ld7krI7BcxyWmmWWDFZR2+lzKgdJ0XLWZtS3yaWzpEM0E6/luToYSn4lpnaVxLueklHUGt/d0NCQ=="
+        },
+        {
+          "v": 1,
+          "seq": 15,
+          "ts": "2026-11-18T17:13:22.388Z",
+          "prev": "a3f7719ed4d620d7783017155cb585b58f099abe4a1ff87a9a7fa382ae5c549c",
+          "type": "action.result",
+          "data": {
+            "class": "fs.write",
+            "decisionId": "5ee27d76-7afa-41f7-a25d-659d7eb04219",
+            "ok": true,
+            "target": "C:\\starclaw-public-example-macPmJ\\approve\\workspace\\launch-brief.md"
+          },
+          "hash": "fbd763d33f860b06806fea23c5a417e034c042fffe4af5e8ef82243a4fdc6386",
+          "sig": "nzWrmeHK5dgiGfM/i2e+ugnov/DdjiEwNEn1CQtvhQtkUc1wPfnD6CY+Iij+4UZWHZ0qofH9kq34Pj4mlKuSCQ=="
+        },
+        {
+          "v": 1,
+          "seq": 16,
+          "ts": "2026-11-18T17:13:22.411Z",
+          "prev": "fbd763d33f860b06806fea23c5a417e034c042fffe4af5e8ef82243a4fdc6386",
+          "type": "exec.result",
+          "data": {
+            "brokerCalls": 2,
+            "codeSha256": "bd28330dbda046b36535f31558c9bbccab2a0f3ae2cd59137d55c0367693ddec",
+            "decisionId": "38749ca4-6af3-427b-9db6-559f37b2d99c",
+            "durationMs": 239,
+            "ok": true,
+            "stdoutBytes": 0,
+            "taintedAfter": false,
+            "timedOut": false
+          },
+          "hash": "dc24fc852cc213cde37857ca1655f1132c3198316d4e49a82e04a18e2d730e96",
+          "sig": "ntQ7WBKwjloqB39/ko77hhIB646mX8jJl0FM7uFU2siCBLtXTmCFWWQBxcw64J/1Rbk0M6TkhR8TRLvGlpGtBA=="
+        },
+        {
+          "v": 1,
+          "seq": 17,
+          "ts": "2026-11-18T17:13:22.415Z",
+          "prev": "dc24fc852cc213cde37857ca1655f1132c3198316d4e49a82e04a18e2d730e96",
+          "type": "decision.request",
+          "data": {
+            "class": "memory.write",
+            "decisionId": "46800182-9e67-41b2-ab6f-9aa54b4b7c87",
+            "detail": "Completed: Read launch-notes.txt and save the product facts as launch-brief.md.",
+            "escalatedByTaint": false,
+            "policySource": "default",
+            "summary": "Remember: Completed: Read launch-notes.txt and save the product facts as launch-brief.md.",
+            "taintSources": [],
+            "tainted": false,
+            "target": "memory.db",
+            "verdictBeforeApproval": "deny"
+          },
+          "hash": "d0138eb38d9c8228e4762ee8fcf2fe5af8f3373e0b4e8cf8b43d362a1a4e997c",
+          "sig": "YkrT4NHhSGf3ZhrtGlRA3uxSravlHjaBXfT7nslYnkkz1Q8fGFC0XwfYMoq/2ZmnCQj5lCleipJljIKR4bG3Dg=="
+        },
+        {
+          "v": 1,
+          "seq": 18,
+          "ts": "2026-11-18T17:13:22.421Z",
+          "prev": "d0138eb38d9c8228e4762ee8fcf2fe5af8f3373e0b4e8cf8b43d362a1a4e997c",
+          "type": "decision.result",
+          "data": {
+            "allowed": false,
+            "by": "policy",
+            "class": "memory.write",
+            "decisionId": "46800182-9e67-41b2-ab6f-9aa54b4b7c87",
+            "escalatedByTaint": false,
+            "reason": "policy rule denies memory.write",
+            "target": "memory.db"
+          },
+          "hash": "1a2f9042868693c6dfeeb140b22ef336e4bca2b36587cf78e9cf1671fae9249c",
+          "sig": "Dxf4oVewANxEJskTT6px8PC3BZBM6OM//hOQWKy6iuZqjZ16MByGpYfsodhjZdPINkk6OXyOZKTx0aq2zpKlDQ=="
+        },
+        {
+          "v": 1,
+          "seq": 19,
+          "ts": "2026-11-18T17:13:22.425Z",
+          "prev": "1a2f9042868693c6dfeeb140b22ef336e4bca2b36587cf78e9cf1671fae9249c",
+          "type": "goal.completed",
+          "data": {
+            "kind": "task",
+            "tainted": false
+          },
+          "hash": "cb8b4a3930e3a92083d481fffa269653975c75b67a803a26a2bb3386fcedbccc",
+          "sig": "Z9VN92jpW+5+3ySpeUS6ofy3WFSBODEWuY6SjXkp53WHgTzDJwYa7mJHwPG7N+/s7VKZVKAMvXfnqlWrhRNODA=="
+        }
+      ],
+      "head": {
+        "seq": 19,
+        "hash": "cb8b4a3930e3a92083d481fffa269653975c75b67a803a26a2bb3386fcedbccc",
+        "sig": "pbyqPnZWqcrPjMXsR+NfClcAFiJmrhzoOo4EF9AVM9PxXx4IeBmSjZN7+a8TdhN0pzfJ6DNhpKGHSVqDfJjKDQ=="
+      }
+    },
+    "deny": {
+      "result": {
+        "success": false,
+        "kind": "task",
+        "error": "Error: Denied (human): denied by approver [fs.write C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-brief.md]\n    at process.onMessage (C:\\Users\\bizsu\\Projects\\starclaw-site-redesign\\src\\sandbox\\runner.cjs:91:17)\n    at process.emit (node:events:509:20)\n    at emit (node:internal/child_process:956:14)\n    at process.processTicksAndRejections (node:internal/process/task_queues:91:21)",
+        "tainted": false,
+        "llmCostCentsCeil": 0,
+        "stdout": ""
+      },
+      "approval": {
+        "id": "657d8991-a781-47f7-b9f3-afb5aac397eb",
+        "action": {
+          "class": "fs.write",
+          "target": "C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-brief.md",
+          "inWorkspace": true,
+          "summary": "Write 256 bytes to C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-brief.md",
+          "detail": "# StarClaw / launch brief\n\n- Open-source agent for research, code changes, and scheduled work.\n- Actions pass through a policy that can allow, ask, or deny.\n- Audit records are signed and hash-chained.\n- Developer alpha. Does not prevent prompt injection.\n"
+        },
+        "provenance": {
+          "tainted": false,
+          "sources": []
+        },
+        "reason": "policy default for fs.write is \"ask\"",
+        "escalatedByTaint": false,
+        "expiresAt": 1795022122747
+      },
+      "output": null,
+      "records": [
+        {
+          "v": 1,
+          "seq": 0,
+          "ts": "2026-11-18T17:13:22.463Z",
+          "prev": "0000000000000000000000000000000000000000000000000000000000000000",
+          "type": "audit.open",
+          "data": {
+            "fingerprint": "081f882b07aa1bd7",
+            "pid": 4324,
+            "publicKey": "efea66d9730d9084291ad1ff1c135a6f34ffa1402edb397da129e4e8d7dd56c7"
+          },
+          "hash": "0ad731d0bc77ff643be293d2cd8778d4e8a5f5a170a50001a8d60a11ca5a8e06",
+          "sig": "+wsUd5Rv+2QT2+sfIZNy/uu9gzudHKEBrV8D4NG6mwM3zYS53RZCrYArlypJu+vPe+Fkcn20xbZeCfQ2McM3Ag=="
+        },
+        {
+          "v": 1,
+          "seq": 1,
+          "ts": "2026-11-18T17:13:22.496Z",
+          "prev": "0ad731d0bc77ff643be293d2cd8778d4e8a5f5a170a50001a8d60a11ca5a8e06",
+          "type": "engine.start",
+          "data": {
+            "approver": "website-scripted-approver",
+            "id": "starclaw",
+            "learnSkills": false,
+            "node": "v25.9.0",
+            "notifier": "none",
+            "platform": "win32"
+          },
+          "hash": "74e3ae16986ec53d6f588a5c13e3d7f87b04d9eaa36fd36ddf756b244d1e2591",
+          "sig": "54USa9/i3qTMy/hYDaosUpdpLt+Mr/Ckz7YCd5BNNeJVQCU911qdlFRdNsViKn1Mw3gQA8pH7322X2AC7I5fBw=="
+        },
+        {
+          "v": 1,
+          "seq": 2,
+          "ts": "2026-11-18T17:13:22.501Z",
+          "prev": "74e3ae16986ec53d6f588a5c13e3d7f87b04d9eaa36fd36ddf756b244d1e2591",
+          "type": "memory.verify",
+          "data": {
+            "chainErrors": [],
+            "ok": true,
+            "tampered": 0,
+            "total": 0
+          },
+          "hash": "338260563f40598a6b318003f5b2fe37085da5ded369f82c8cdfa0ee5367bb73",
+          "sig": "TNwOgytQhCFcDDWtVZ9BHICuzJlLjwjEJ3rE2mbnylX10/fLHft4qwTLg/NkPUvG1OW/T3GfCBnsywnXQlXUAw=="
+        },
+        {
+          "v": 1,
+          "seq": 3,
+          "ts": "2026-11-18T17:13:22.505Z",
+          "prev": "338260563f40598a6b318003f5b2fe37085da5ded369f82c8cdfa0ee5367bb73",
+          "type": "sandbox.probe",
+          "data": {
+            "active": "ACTIVE LAYER: process (mode process). process: Node permission model (no OS-level isolation)",
+            "checks": 42,
+            "layer": "process",
+            "node": "v25.9.0",
+            "ok": true,
+            "skipped": []
+          },
+          "hash": "ec7c01f298011eaecaf285bd33c689e9170ad589baec4a166ed3b6c53a329302",
+          "sig": "I4uWBF53AQ6iH1YwZeBQ6QXb6+eoGUtaC6JEOpMs8OJkgXoCj1lCD7/9csqRV+BVlkcbUPSIODKtzQktISqUCA=="
+        },
+        {
+          "v": 1,
+          "seq": 4,
+          "ts": "2026-11-18T17:13:22.510Z",
+          "prev": "ec7c01f298011eaecaf285bd33c689e9170ad589baec4a166ed3b6c53a329302",
+          "type": "goal.received",
+          "data": {
+            "goal": "Read launch-notes.txt and save the product facts as launch-brief.md.",
+            "origin": "owner",
+            "runId": "35c104b9-5d97-49d1-b588-2d02d19d89bd"
+          },
+          "hash": "d93e82537fbe76c7daed9981dd5dc511bb2c72774b617968a5972ccec8d37c59",
+          "sig": "PXFDbq9tRZDYZRb6HB24AfVLHOHxpO+pgN6oRKiEObtPxrGKzwiHnqKX+zLpdXzkxvFXRb9dQUAUDkwuuPhBAA=="
+        },
+        {
+          "v": 1,
+          "seq": 5,
+          "ts": "2026-11-18T17:13:22.519Z",
+          "prev": "d93e82537fbe76c7daed9981dd5dc511bb2c72774b617968a5972ccec8d37c59",
+          "type": "llm.usage",
+          "data": {
+            "dayCentsCeil": 0,
+            "inputTokens": 0,
+            "microcents": 0,
+            "outputTokens": 0,
+            "priceAssumed": false,
+            "runCentsCeil": 0,
+            "what": "classify"
+          },
+          "hash": "9867b66f67b5893218204ce3b863675c5fe285e651da43834c92ad6c255d8d43",
+          "sig": "o++qWTHOOeCxi5bPp2UnKmw8BdYxrDccA/jNs1ouGESnMVFv4f+l3yp8lNp/MEoajZOgeMoMRgrW2M8WbVRLCg=="
+        },
+        {
+          "v": 1,
+          "seq": 6,
+          "ts": "2026-11-18T17:13:22.527Z",
+          "prev": "9867b66f67b5893218204ce3b863675c5fe285e651da43834c92ad6c255d8d43",
+          "type": "llm.usage",
+          "data": {
+            "dayCentsCeil": 0,
+            "inputTokens": 0,
+            "microcents": 0,
+            "outputTokens": 0,
+            "priceAssumed": false,
+            "runCentsCeil": 0,
+            "what": "codegen"
+          },
+          "hash": "233868ecd4cd0c012ca7e64d8d0988603559c7f202fc6d9a79bcd928050fb6eb",
+          "sig": "LZ7A5xw6x8e8hMXoZ8oxwMr1EohUgAypWTN3BGaHtB76DpHTGmGHpPmCoQY1GVv82ivSqQ0OH1PkVTeugAQpCg=="
+        },
+        {
+          "v": 1,
+          "seq": 7,
+          "ts": "2026-11-18T17:13:22.532Z",
+          "prev": "233868ecd4cd0c012ca7e64d8d0988603559c7f202fc6d9a79bcd928050fb6eb",
+          "type": "decision.request",
+          "data": {
+            "class": "exec",
+            "decisionId": "c97de5bc-34fe-47ea-ba9f-e16d5e8ce2cb",
+            "detail": "async function execute() {\n  const notes = await tools.readFile({ path: 'launch-notes.txt' });\n  const facts = notes.content.split('\\n').filter(line => line.startsWith('- '));\n  const content = '# StarClaw / launch brief\\n\\n' + facts.join('\\n') + '\\n';\n  await tools.writeFile({ path: 'launch-brief.md', content });\n  return { file: 'launch-brief.md', facts: facts.length };\n}\nmodule.exports = { execute };",
+            "escalatedByTaint": false,
+            "policySource": "default",
+            "summary": "Run generated JavaScript (sha256 bd28330dbda0, 406 chars) in the isolated sandbox; its tool calls are governed individually",
+            "taintSources": [],
+            "tainted": false,
+            "target": "sandbox:js",
+            "verdictBeforeApproval": "ask"
+          },
+          "hash": "d1792118fbab1bbd1df826647c15533ae8fb10be5580c81689c72060efddcae8",
+          "sig": "QZ8HRdrhQePS58ByuQajJB4bP5CoJiQFtrqOQhJbfDMRViHadPxrGJZYBEkhp18dUT/aOreoSID9o3CDZfXvBQ=="
+        },
+        {
+          "v": 1,
+          "seq": 8,
+          "ts": "2026-11-18T17:13:22.536Z",
+          "prev": "d1792118fbab1bbd1df826647c15533ae8fb10be5580c81689c72060efddcae8",
+          "type": "decision.result",
+          "data": {
+            "allowed": true,
+            "by": "human",
+            "class": "exec",
+            "decisionId": "c97de5bc-34fe-47ea-ba9f-e16d5e8ce2cb",
+            "escalatedByTaint": false,
+            "reason": "approved by human",
+            "target": "sandbox:js"
+          },
+          "hash": "8264d0490b03416f3ac00acb2d3bf645c2c300279b24b8cb482970c9bdf0579a",
+          "sig": "9OSxBE9tOvATwtOAp5F7CXgiBGRXoo+dJ6Y97UX2JBCD7f6t0YbTg/UrYF5SDCVntH0dkinK0TstRoGWZGDwCg=="
+        },
+        {
+          "v": 1,
+          "seq": 9,
+          "ts": "2026-11-18T17:13:22.541Z",
+          "prev": "8264d0490b03416f3ac00acb2d3bf645c2c300279b24b8cb482970c9bdf0579a",
+          "type": "exec.start",
+          "data": {
+            "codeSha256": "bd28330dbda046b36535f31558c9bbccab2a0f3ae2cd59137d55c0367693ddec",
+            "decisionId": "c97de5bc-34fe-47ea-ba9f-e16d5e8ce2cb",
+            "tainted": false
+          },
+          "hash": "a5ca87c0833071b19aadc7dfed32f5cd6232df0168b660cab5931a51d0b80ecc",
+          "sig": "YmS85kddQumCLA5Lndr7bBRRYsOjYngo36h7ZWOJXH54DywxP2pAsAwuoWZXBGYRhjTWWuy7xIdi7GP1s4W2Bw=="
+        },
+        {
+          "v": 1,
+          "seq": 10,
+          "ts": "2026-11-18T17:13:22.726Z",
+          "prev": "a5ca87c0833071b19aadc7dfed32f5cd6232df0168b660cab5931a51d0b80ecc",
+          "type": "decision.request",
+          "data": {
+            "class": "fs.read",
+            "decisionId": "8c8d0269-bbbd-4db1-a9a5-c642174d8e1e",
+            "escalatedByTaint": false,
+            "inWorkspace": true,
+            "policyRule": 0,
+            "policySource": "rule",
+            "summary": "Read file C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-notes.txt",
+            "taintSources": [],
+            "tainted": false,
+            "target": "C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-notes.txt",
+            "verdictBeforeApproval": "allow"
+          },
+          "hash": "795a17334cacda108db5e152a321107cc980fdda48819d5f737853e68f90f5c5",
+          "sig": "psDeSy0l8//+FozWH5nMQNyRGfrwRdR/g5E4Xsqfi33xX/EzX/L9PaQNrE2v0YLktvrUDzg983Lcrk+bdAdTAg=="
+        },
+        {
+          "v": 1,
+          "seq": 11,
+          "ts": "2026-11-18T17:13:22.730Z",
+          "prev": "795a17334cacda108db5e152a321107cc980fdda48819d5f737853e68f90f5c5",
+          "type": "decision.result",
+          "data": {
+            "allowed": true,
+            "by": "policy",
+            "class": "fs.read",
+            "decisionId": "8c8d0269-bbbd-4db1-a9a5-c642174d8e1e",
+            "escalatedByTaint": false,
+            "reason": "allowed by policy",
+            "target": "C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-notes.txt"
+          },
+          "hash": "d3fb5dcb0963e80eba8406f65b8487b39019530db9e9351082cbf772aa05d014",
+          "sig": "hIQugBoxfOMXoeqWSE3kFpCQ35U0CYy09duZL0fc8871/aTsII8E9mqWvGpja3R1LZYn4UKKYyzavCdrmjz6AQ=="
+        },
+        {
+          "v": 1,
+          "seq": 12,
+          "ts": "2026-11-18T17:13:22.736Z",
+          "prev": "d3fb5dcb0963e80eba8406f65b8487b39019530db9e9351082cbf772aa05d014",
+          "type": "action.result",
+          "data": {
+            "bytes": 252,
+            "class": "fs.read",
+            "decisionId": "8c8d0269-bbbd-4db1-a9a5-c642174d8e1e",
+            "ok": true,
+            "target": "C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-notes.txt"
+          },
+          "hash": "a5bf21fe08c84fbfa39ae780a389d9ee324504a000640d5f6a14f27bd1536862",
+          "sig": "qjpuOUqPVw6m03PaCvGOHOvgjLRPdl0N/m44PtoFbqt8s0PtPAHxeOyilE1aYTt3Ro1SOxMlJfD4RTmOTVunBA=="
+        },
+        {
+          "v": 1,
+          "seq": 13,
+          "ts": "2026-11-18T17:13:22.743Z",
+          "prev": "a5bf21fe08c84fbfa39ae780a389d9ee324504a000640d5f6a14f27bd1536862",
+          "type": "decision.request",
+          "data": {
+            "class": "fs.write",
+            "decisionId": "657d8991-a781-47f7-b9f3-afb5aac397eb",
+            "detail": "# StarClaw / launch brief\n\n- Open-source agent for research, code changes, and scheduled work.\n- Actions pass through a policy that can allow, ask, or deny.\n- Audit records are signed and hash-chained.\n- Developer alpha. Does not prevent prompt injection.\n",
+            "escalatedByTaint": false,
+            "inWorkspace": true,
+            "policySource": "default",
+            "summary": "Write 256 bytes to C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-brief.md",
+            "taintSources": [],
+            "tainted": false,
+            "target": "C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-brief.md",
+            "verdictBeforeApproval": "ask"
+          },
+          "hash": "6729777f36b87c3617698f9103e69414343d7e3583a07c66bb54d36e9e28a50b",
+          "sig": "yZY9SQDff70+zS/uWi0lVP/VHnswt9T2/Ef+vtb+S/DxUwdYbuAPGB/e3F16E8hic1iaDMxO7rRP6TtrQxQOAw=="
+        },
+        {
+          "v": 1,
+          "seq": 14,
+          "ts": "2026-11-18T17:13:22.748Z",
+          "prev": "6729777f36b87c3617698f9103e69414343d7e3583a07c66bb54d36e9e28a50b",
+          "type": "decision.result",
+          "data": {
+            "allowed": false,
+            "by": "human",
+            "class": "fs.write",
+            "decisionId": "657d8991-a781-47f7-b9f3-afb5aac397eb",
+            "escalatedByTaint": false,
+            "reason": "denied by approver",
+            "target": "C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-brief.md"
+          },
+          "hash": "964ac1ed0df87eea5b4652a08dcd5e61e45f2003098175929b4fbd238a4d8919",
+          "sig": "vL0/DyjIyQxdV1hCKi4JVhaV6/4UffCyGlroTrM3lBp9BxRkiYXsbbi6Wl1t00TenYJiSAROxvyKeyroJkhLCw=="
+        },
+        {
+          "v": 1,
+          "seq": 15,
+          "ts": "2026-11-18T17:13:22.771Z",
+          "prev": "964ac1ed0df87eea5b4652a08dcd5e61e45f2003098175929b4fbd238a4d8919",
+          "type": "exec.result",
+          "data": {
+            "brokerCalls": 2,
+            "codeSha256": "bd28330dbda046b36535f31558c9bbccab2a0f3ae2cd59137d55c0367693ddec",
+            "decisionId": "c97de5bc-34fe-47ea-ba9f-e16d5e8ce2cb",
+            "durationMs": 225,
+            "error": "Error: Denied (human): denied by approver [fs.write C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-brief.md]\n    at process.onMessage (C:\\Users\\bizsu\\Projects\\starclaw-site-redesign\\src\\sandbox\\runner.cjs:91:17)\n    at process.emit (node:events:509:20)\n    at emit (node:internal/child_process:956:14)\n    at process.processTicksAndRejections (node:internal/process/task_queues:91:21)",
+            "ok": false,
+            "stdoutBytes": 0,
+            "taintedAfter": false,
+            "timedOut": false
+          },
+          "hash": "e2e56106a0e38451f6d2c91b6918feae384ef2bed8f510f181695c26e6485f15",
+          "sig": "RJfGfgdZYFNFDTEF79udhbG/7b41LLkHwb8rHjHIlaPKGYBd6qm6LzXRPrHHhqoB6QE320TYV8jqft2zcecaBQ=="
+        },
+        {
+          "v": 1,
+          "seq": 16,
+          "ts": "2026-11-18T17:13:22.776Z",
+          "prev": "e2e56106a0e38451f6d2c91b6918feae384ef2bed8f510f181695c26e6485f15",
+          "type": "goal.failed",
+          "data": {
+            "error": "Error: Denied (human): denied by approver [fs.write C:\\starclaw-public-example-macPmJ\\deny\\workspace\\launch-brief.md]\n    at process.onMessage (C:\\Users\\bizsu\\Projects\\starclaw-site-redesign\\src\\sandbox\\runner.cjs:91:17)\n    at process.emit (node:events:509:20)\n    at emit (node:internal/child_process:956:14)\n    at process.processTicksAndRejections (node:internal/process/task_queues:91:21)"
+          },
+          "hash": "faa289f3d50db42a3e864cdd915e6175d26d2ab3c48367cabb7127e0a683c539",
+          "sig": "IP8ow6bCjLTCedglqF8bkszl7GA6Lrq8R45wvAPesJiSADBO2L76KCUpxc32YO2B4yGi1Z45C3Aembqqj5kbBQ=="
+        }
+      ],
+      "head": {
+        "seq": 16,
+        "hash": "faa289f3d50db42a3e864cdd915e6175d26d2ab3c48367cabb7127e0a683c539",
+        "sig": "+/Cl4MCU3dAtAlweMSdJrRW5mNaWi6UP6ntmD0LVLiKkWtTO+XZANNvEu7F+MNj4V1J4hixp+wyAZT395r+UBA=="
+      }
+    }
+  }
+}
