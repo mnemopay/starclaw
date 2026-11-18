@@ -6,6 +6,7 @@ import { Command } from 'commander';
 import { applySandboxFlags, createEngine, CommonCliOptions } from './bootstrap';
 import { CliApprover } from './governance/approvers';
 import { verifyAuditFile } from './governance/audit';
+import { exportArticle12 } from './governance/article12';
 import { defaultPolicy, loadPolicy } from './governance/policy';
 import { subagentsStatus } from './governance/subagent';
 import { describeLlm } from './llm/factory';
@@ -145,6 +146,33 @@ audit
       for (const w of r.warnings) console.log(`  warning: ${w}`);
     }
     process.exit(r.ok ? 0 : 1);
+  });
+audit
+  .command('export <file>')
+  .description('verify the log, then write an EU AI Act Article 12 bundle (MnemoPay format: mission.json, events.json/.csv, chain.txt, manifest.json). Refuses a log that does not verify.')
+  .requiredOption('--out <dir>', 'output directory (created; existing bundle files are never overwritten)')
+  .option('--pubkey <hex>', 'trusted Ed25519 public key (hex)')
+  .option('--pubkey-file <file>', 'file containing the trusted public key')
+  .option('--allow-missing-head', 'do not fail if the .head checkpoint is missing')
+  .option('--operator <id>', 'operator identifier recorded in mission.json (the company that deployed the agent)')
+  .option('--retention-months <n>', 'retention period stated in the bundle (Article 12 minimum: 6)', '6')
+  .option('--budget-usd <n>', 'budget cap to state in mission.json (the log does not record it)')
+  .action((file: string, o: { out: string; pubkey?: string; pubkeyFile?: string; allowMissingHead?: boolean; operator?: string; retentionMonths: string; budgetUsd?: string }) => {
+    try {
+      const retentionMonths = Number(o.retentionMonths);
+      if (!Number.isInteger(retentionMonths) || retentionMonths < 6) throw new Error('--retention-months must be an integer of at least 6');
+      const budgetMaxUsd = o.budgetUsd === undefined ? undefined : Number(o.budgetUsd);
+      if (budgetMaxUsd !== undefined && !(budgetMaxUsd >= 0)) throw new Error('--budget-usd must be a non-negative number');
+      const pub = o.pubkey ?? (o.pubkeyFile ? fs.readFileSync(o.pubkeyFile, 'utf8').trim() : undefined);
+      const r = exportArticle12(file, { pinnedPublicKeyHex: pub, allowMissingHead: o.allowMissingHead, operatorId: o.operator, retentionMonths, budgetMaxUsd });
+      fs.mkdirSync(o.out, { recursive: true });
+      for (const f of r.bundle.files) fs.writeFileSync(path.join(o.out, f.path), f.body, { flag: 'wx' });
+      console.log(`exported ${r.events} events to ${o.out} (log verified; key ${r.verification.keyPinned ? 'pinned' : 'taken from log'})`);
+      console.log(`bundle sha256 ${r.bundle.bundleSha256}`);
+      for (const w of r.verification.warnings) console.log(`  warning: ${w}`);
+    } catch (e) {
+      fatal(e);
+    }
   });
 
 const policy = program.command('policy').description('policy file tools');
