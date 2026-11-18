@@ -1,52 +1,35 @@
 (() => {
-  const { gsap, ScrollTrigger } = window;
-  if (!gsap || !ScrollTrigger) return;
-  gsap.registerPlugin(ScrollTrigger);
-  gsap.matchMedia().add('(prefers-reduced-motion: no-preference)', () => {
-    const leaves = gsap.utils.toArray('.leaf');
-    const replay = document.querySelector('#refold');
-    // Keep the engraved page legible while the sheets behind it unfold.
-    const opening = gsap.timeline();
-    leaves.forEach((leaf, index) => {
-      const angle = -66 + index * 2.75;
-      opening.fromTo(leaf, { attr: { transform: 'rotate(22 220 322)' } }, {
-        attr: { transform: 'rotate(' + angle + ' 220 322)' },
-        duration: 1.16,
-        ease: 'power3.inOut'
-      }, index * 0.008);
+  const player = document.querySelector('.cinema');
+  const films = [...player.querySelectorAll('video')];
+  const links = [...player.querySelectorAll('[data-film]')];
+  const preference = matchMedia('(prefers-reduced-motion: reduce)');
+  let started = false;
+  let selected = 0;
+  function play(video) { video.play().catch(() => {}); }
+  function pauseAll() { films.forEach(video => video.pause()); }
+  links.forEach((link, index) => link.addEventListener('click', event => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    started = true;
+    selected = index;
+    pauseAll();
+    films.forEach((video, i) => { video.hidden = i !== index; });
+    links.forEach((item, i) => {
+      if (i === index) item.setAttribute('aria-current', 'true');
+      else item.removeAttribute('aria-current');
     });
-    opening.from('.cover h1 span', { y: 18, duration: 0.68, stagger: 0.1, ease: 'power3.out' }, 0);
-    const restart = () => opening.restart();
-    replay.hidden = false;
-    replay.addEventListener('click', restart);
-    // Scroll the fan closed at the proposed write. Only replay controls choose an outcome.
-    const desktop = gsap.matchMedia();
-    desktop.add('(min-width:901px) and (min-height:620px)', () => {
-      // Parent rotations compose with the independent entrance animation on each leaf.
-      const wrappers = leaves.map(leaf => {
-        const wrapper = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        leaf.before(wrapper);
-        wrapper.append(leaf);
-        return wrapper;
-      });
-      gsap.to(wrappers, {
-        rotation: index => 66 - index * 2.75,
-        svgOrigin: '220 322', ease: 'power2.inOut',
-        scrollTrigger: { trigger: '.cover-chapter', start: 'top 80%', end: 'center 52%', scrub: true }
-      });
-      return () => wrappers.forEach(wrapper => wrapper.replaceWith(wrapper.firstElementChild));
-    });
-    for (const selector of ['.run-intro h2', '.section-heading h2', '.ownership-copy h2', '.manifesto h2', '.press-signature']) {
-      gsap.from(selector, {
-        y: 20, duration: 0.72, ease: 'power3.out',
-        scrollTrigger: { trigger: selector, start: 'top 97%', once: true }
-      });
+    films[index].currentTime = 0;
+    play(films[index]);
+  }));
+  const observer = new IntersectionObserver(entries => {
+    const visible = entries[0].intersectionRatio >= 0.45;
+    if (!visible) pauseAll();
+    else if (!started && !preference.matches && !document.hidden) {
+      started = true;
+      play(films[selected]);
     }
-    return () => {
-      desktop.revert();
-      replay.hidden = true;
-      replay.removeEventListener('click', restart);
-      leaves.forEach((leaf, index) => leaf.setAttribute('transform', 'rotate(' + (-66 + index * 2.75) + ' 220 322)'));
-    };
-  });
+  }, { threshold: [0, 0.45] });
+  observer.observe(player);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) pauseAll(); });
+  preference.addEventListener('change', () => { if (preference.matches) pauseAll(); });
 })();
