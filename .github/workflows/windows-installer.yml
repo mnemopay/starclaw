@@ -15,6 +15,8 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.pack.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -88,3 +90,36 @@ jobs:
           name: StarClaw-Setup-${{ steps.pack.outputs.version }}-UNSIGNED
           path: installer/windows/output/*.exe
           if-no-files-found: error
+
+  # Version tags only: publish the installer that the smoke test above just proved, as a GitHub prerelease.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: StarClaw-Setup-${{ needs.build.outputs.version }}-UNSIGNED
+          path: dist
+      - name: Checksums and notes
+        run: |
+          cd dist && sha256sum *.exe > SHA256SUMS.txt && cat SHA256SUMS.txt
+          {
+            echo "StarClaw ${{ needs.build.outputs.version }} for Windows (per-user install, no admin prompt). Bundles Node 25.9.0."
+            echo
+            echo '> **Not code-signed yet.** Windows SmartScreen will say "Windows protected your PC": click *More info* -> *Run anyway*. Check the download against SHA256SUMS.txt first.'
+            echo
+            echo 'This exact file was installed, run (console + API) and uninstalled on a clean Windows VM by CI before this release was published.'
+            echo
+            echo 'Also on npm: `npm install -g starclaw@next` (Node >= 25.9). See CHANGELOG.md for what changed.'
+          } > notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          body_path: dist/notes.md
+          files: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true

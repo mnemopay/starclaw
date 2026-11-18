@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0-alpha.8 (unreleased)
+## 2.0.0-alpha.8 (2026-11-18)
 
 ### Reliability and security
 * Integrated registry skills with the subagent-capable engine. Registry skills cannot delegate; shell use requires explicit whole-workspace consent.
