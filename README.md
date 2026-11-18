@@ -34,6 +34,7 @@ npx starclaw doctor           # probes every isolation layer and prints what is 
 npx starclaw policy init                    # writes the conservative default policy to ./starclaw.policy.json
 npx starclaw run "summarise the headlines on https://example.com"
 npx starclaw                                 # interactive session
+npx starclaw app                             # console in your browser (127.0.0.1 only; key generated in the app home)
 npx starclaw audit verify .starclaw/audit.jsonl --pubkey-file .starclaw/audit.pub
 npx starclaw audit export .starclaw/audit.jsonl --pubkey-file .starclaw/audit.pub --out article12/   # EU AI Act Article 12 bundle (MnemoPay format)
 ```

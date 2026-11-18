@@ -3,7 +3,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { Command } from 'commander';
+import * as dotenv from 'dotenv';
+import { defaultAppHome, prepareAppHome, startApp } from './app';
 import { applySandboxFlags, createEngine, CommonCliOptions } from './bootstrap';
+import { HttpApprover } from './channels/http';
 import { CliApprover } from './governance/approvers';
 import { verifyAuditFile } from './governance/audit';
 import { exportArticle12 } from './governance/article12';
@@ -580,6 +583,38 @@ policyOpt(discordCmd.command('register'))
       const cfg = resolveDiscordConfig(policy, process.env);
       const n = await registerDiscordCommand(new FetchDiscordApi(cfg.botToken), cfg.applicationId, o.guild);
       console.log(`registered ${n} command(s) ${o.guild ? 'in guild ' + o.guild : 'globally'}`);
+    } catch (e) {
+      fatal(e);
+    }
+  });
+
+common(program.command('app'))
+  .description('local console in your browser: runs in the app home (default %LOCALAPPDATA%\\StarClaw, ~/.starclaw-app elsewhere, or STARCLAW_HOME), listens on 127.0.0.1 only, and opens the console already holding its key')
+  .option('--home <dir>', 'app home directory (its .env, starclaw.policy.json, .starclaw/ and workspace are used)')
+  .option('--port <n>', 'port on 127.0.0.1 (default: a free one)', '0')
+  .option('--no-open', 'do not open a browser; print the address instead')
+  .action(async (o: CommonCliOptions & { home?: string; port: string; open: boolean }) => {
+    try {
+      const port = Number(o.port);
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be 0..65535');
+      // Paths given on the command line are relative to where the user typed them, not to the app home.
+      for (const k of ['policy', 'stateDir', 'workspace'] as const) if (o[k]) o[k] = path.resolve(o[k]!);
+      const home = o.home ? path.resolve(o.home) : defaultAppHome();
+      const { envFile, apiKey, created } = prepareAppHome(home);
+      process.chdir(home);
+      dotenv.config({ path: envFile, quiet: true } as any);
+      const approver = new HttpApprover();
+      let engine: StarClawEngine;
+      try {
+        engine = createEngine(o, approver);
+      } catch (e: any) {
+        throw new Error(`${e.message}\n  Put the model key in ${envFile} (see \`starclaw doctor\` for which variable), then start again.`);
+      }
+      await engine.boot();
+      const a = await startApp({ apiKey, engine, approver, port, open: o.open ? undefined : false });
+      console.log(`StarClaw ${VERSION} console: http://127.0.0.1:${a.port}/  (home ${home}${created ? '; new console key written to .env' : ''})`);
+      if (!o.open) console.log(`open with the key: ${a.url}`);
+      console.log('Ctrl+C stops it.');
     } catch (e) {
       fatal(e);
     }

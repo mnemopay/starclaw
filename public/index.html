@@ -48,6 +48,10 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var jobId = null;
+  // `starclaw app` opens this page as /#key=...: the fragment never reaches the server. Take the key, then drop it
+  // from the address bar and this history entry.
+  var m = /^#key=([^&]+)$/.exec(location.hash);
+  if (m) { $('key').value = decodeURIComponent(m[1]); history.replaceState(null, '', location.pathname + location.search); }
   function headers() { return { 'Authorization': 'Bearer ' + $('key').value, 'Content-Type': 'application/json' }; }
   function api(path, opts) {
     opts = opts || {}; opts.headers = headers();
