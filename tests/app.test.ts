@@ -70,15 +70,44 @@ describe('starclaw app', () => {
     }
   });
 
-  test('CLI without a model key: exits 1 and says which .env to put it in', () => {
+  test('CLI without a model key: opens guided setup (key-protected) instead of exiting', async () => {
     const home = path.join(dir, 'home');
     const env: NodeJS.ProcessEnv = { ...process.env, STARCLAW_HOME: home };
-    for (const k of ['GROQ_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'STARCLAW_POLICY', 'STARCLAW_API_KEY']) delete env[k];
+    for (const k of ['GROQ_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'STARCLAW_POLICY', 'STARCLAW_API_KEY']) delete env[k];
+    const child = spawn(process.execPath, ['--import', TSX, CLI, 'app', '--no-open'], { env, cwd: dir });
+    try {
+      let out = '';
+      child.stderr.on('data', (d) => { out += d; });
+      const port = await new Promise<number>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(`no setup line in 60s:\n${out}`)), 60_000);
+        child.stdout.on('data', (d) => {
+          out += d;
+          const m = /setup: http:\/\/127\.0\.0\.1:(\d+)\//.exec(out);
+          if (m && out.includes('Ctrl+C stops it.')) { clearTimeout(t); resolve(Number(m[1])); }
+        });
+        child.on('exit', (c) => { clearTimeout(t); reject(new Error(`exited ${c}:\n${out}`)); });
+      });
+      assert.match(out, /No usable AI model yet \(GROQ_API_KEY is not set/);
+      assert.match(await (await fetch(`http://127.0.0.1:${port}/`)).text(), /StarClaw Setup/);
+      assert.equal((await fetch(`http://127.0.0.1:${port}/api/setup/status`)).status, 401);
+      const key = dotenv.parse(fs.readFileSync(path.join(home, '.env'), 'utf8')).STARCLAW_API_KEY;
+      const st = await fetch(`http://127.0.0.1:${port}/api/setup/status`, { headers: { Authorization: `Bearer ${key}` } });
+      assert.equal(st.status, 200);
+      assert.ok((await st.json()).presets.length >= 4);
+    } finally {
+      child.kill();
+    }
+  });
+
+  test('CLI: a broken policy file is an error, not a reason to open setup', () => {
+    const home = path.join(dir, 'home');
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(path.join(home, 'starclaw.policy.json'), '{"llm": {"provider": "nonsense"}}');
+    const env: NodeJS.ProcessEnv = { ...process.env, STARCLAW_HOME: home };
+    for (const k of ['STARCLAW_POLICY', 'STARCLAW_API_KEY']) delete env[k];
     const r = spawnSync(process.execPath, ['--import', TSX, CLI, 'app', '--no-open'], { encoding: 'utf8', env, cwd: dir, timeout: 60_000 });
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stderr, /GROQ_API_KEY is not set/);
-    assert.ok(r.stderr.includes(path.join(home, '.env')), r.stderr);
-    assert.ok(fs.existsSync(path.join(home, '.env')), 'the console key is still prepared');
+    assert.doesNotMatch(r.stdout, /guided setup/);
   });
 
   test('CLI end to end: boots in the app home, serves the console, API answers with the key from <home>/.env', async () => {

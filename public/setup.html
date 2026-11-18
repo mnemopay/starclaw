@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StarClaw Setup</title>
+<style>
+  :root { --bg:#0b0d0f; --panel:#15181b; --line:#2a2f35; --text:#e8eaed; --muted:#8b949e; --accent:#7c3aed; --bad:#ef4444; --good:#22c55e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, sans-serif; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); }
+  h1 { font-size:16px; margin:0; font-weight:600; }
+  main { max-width:640px; margin:0 auto; padding:20px 16px; display:grid; gap:16px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; }
+  h2 { font-size:13px; margin:0 0 10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  p { margin:0 0 10px; color:var(--muted); }
+  label.opt { display:flex; gap:10px; align-items:flex-start; padding:10px; border:1px solid var(--line); border-radius:6px; margin-bottom:8px; cursor:pointer; }
+  label.opt:has(input:checked) { border-color:var(--accent); }
+  .tag { font-size:12px; color:var(--good); }
+  input[type=password], select { width:100%; background:#0f1113; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:9px 16px; cursor:pointer; font:inherit; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .msg { margin-top:10px; white-space:pre-wrap; word-break:break-word; }
+  .ok { color:var(--good); } .err { color:var(--bad); }
+  a { color:#a78bfa; }
+</style>
+</head>
+<body>
+<header><h1>StarClaw setup: choose the AI model</h1></header>
+<main>
+  <section>
+    <h2>1. Provider</h2>
+    <p>StarClaw needs an AI model. Models on this PC are free and private; online providers need an API key, which is stored only on this PC.</p>
+    <div id="presets">Looking for models on this PC…</div>
+  </section>
+  <section id="keybox" hidden>
+    <h2>2. API key</h2>
+    <p id="keyhelp"></p>
+    <input id="apikey" type="password" autocomplete="off" placeholder="paste your API key">
+    <div class="row"><button id="loadmodels">Continue</button></div>
+  </section>
+  <section id="modelbox" hidden>
+    <h2 id="modelstep">3. Model</h2>
+    <select id="model"></select>
+    <div class="row"><button id="test">Test it</button><button id="save" disabled>Save and start StarClaw</button></div>
+    <div id="result" class="msg"></div>
+  </section>
+  <p id="error" class="msg err"></p>
+</main>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var m = /^#key=([^&]+)$/.exec(location.hash);
+  var consoleKey = m ? decodeURIComponent(m[1]) : '';
+  if (m) history.replaceState(null, '', location.pathname + location.search);
+  var state = { presets: [], preset: null, tested: false };
+
+  function api(path, body) {
+    var opts = { headers: { 'Authorization': 'Bearer ' + consoleKey, 'Content-Type': 'application/json' } };
+    if (body) { opts.method = 'POST'; opts.body = JSON.stringify(body); }
+    return fetch('/api' + path, opts).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
+  }
+  function showError(e) { $('error').textContent = e ? String(e.message || e) : ''; }
+  function req() { var b = { preset: state.preset.id }; var k = $('apikey').value.trim(); if (k) b.key = k; var mo = $('model').value; if (mo) b.model = mo; return b; }
+  function resetTest() { state.tested = false; $('save').disabled = true; $('result').textContent = ''; }
+
+  function choose(p) {
+    state.preset = p; showError(); resetTest();
+    $('modelbox').hidden = true;
+    $('modelstep').textContent = (p.needsKey ? '3' : '2') + '. Model';
+    if (p.needsKey) {
+      $('keybox').hidden = false;
+      $('keyhelp').textContent = p.keySaved ? 'A ' + p.label + ' key is already saved on this PC. Leave this empty to use it, or paste a new one.' : 'Paste your ' + p.label + ' API key.';
+      if (p.keyUrl) { var a = document.createElement('a'); a.href = p.keyUrl; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = ' Get a key'; $('keyhelp').appendChild(a); }
+    } else { $('keybox').hidden = true; loadModels(); }
+  }
+  function loadModels() {
+    showError(); resetTest();
+    var sel = $('model'); sel.textContent = '';
+    if (state.preset.fixedModel) { addOpt(sel, state.preset.fixedModel); $('modelbox').hidden = false; return; }
+    $('loadmodels').disabled = true;
+    api('/setup/models', req()).then(function (r) {
+      if (!r.models.length) throw new Error('No models found. For Ollama, download one first (for example: ollama pull llama3.2).');
+      r.models.forEach(function (id) { addOpt(sel, id); });
+      $('modelbox').hidden = false;
+    }).catch(showError).then(function () { $('loadmodels').disabled = false; });
+  }
+  function addOpt(sel, id) { var o = document.createElement('option'); o.value = id; o.textContent = id; sel.appendChild(o); }
+
+  $('loadmodels').onclick = loadModels;
+  $('model').onchange = resetTest;
+  $('apikey').oninput = function () { $('modelbox').hidden = true; resetTest(); };
+  $('test').onclick = function () {
+    showError(); $('test').disabled = true; $('result').className = 'msg'; $('result').textContent = 'Asking the model to reply…';
+    api('/setup/test', req()).then(function (r) {
+      if (r.ok) { state.tested = true; $('save').disabled = false; $('result').className = 'msg ok'; $('result').textContent = 'It works (' + r.ms + ' ms). The model replied: ' + r.reply; }
+      else { $('result').className = 'msg err'; $('result').textContent = 'It did not work: ' + r.error; }
+    }).catch(showError).then(function () { $('test').disabled = false; });
+  };
+  $('save').onclick = function () {
+    if (!state.tested) return;
+    showError(); $('save').disabled = true; $('result').className = 'msg'; $('result').textContent = 'Saving and starting StarClaw…';
+    api('/setup/save', req()).then(function () {
+      // Same path, so changing only the #fragment would not load the console: set it, then reload.
+      history.replaceState(null, '', '/#key=' + encodeURIComponent(consoleKey));
+      location.reload();
+    }).catch(function (e) { $('save').disabled = false; $('result').textContent = ''; showError(e); });
+  };
+
+  if (!consoleKey) { showError('Open this page from the StarClaw shortcut (the address must carry the console key).'); return; }
+  api('/setup/status').then(function (s) {
+    state.presets = s.presets;
+    var box = $('presets'); box.textContent = '';
+    var found = {}; s.detected.local.forEach(function (d) { found[d.id] = d.models.length; });
+    var order = s.presets.slice().sort(function (a, b) { return (found[b.id] ? 1 : 0) - (found[a.id] ? 1 : 0); });
+    order.forEach(function (p) {
+      if (p.local && !found[p.id]) return; // only offer local servers that are running
+      var l = document.createElement('label'); l.className = 'opt';
+      var r = document.createElement('input'); r.type = 'radio'; r.name = 'preset'; r.onchange = function () { choose(p); };
+      var t = document.createElement('div'); t.textContent = p.label;
+      var note = document.createElement('div'); note.className = 'tag';
+      if (found[p.id]) note.textContent = 'Found on this PC: ' + found[p.id] + ' model(s), free and private';
+      else if (p.keySaved) note.textContent = 'Key already saved';
+      t.appendChild(note); l.appendChild(r); l.appendChild(t); box.appendChild(l);
+    });
+  }).catch(showError);
+})();
+</script>
+</body>
+</html>

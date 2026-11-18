@@ -5,9 +5,12 @@ import type { AddressInfo } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
+import express from 'express';
 import { HttpApprover, MIN_API_KEY_LENGTH } from './channels/http';
 import type { StarClawEngine } from './engine';
 import { createGateway } from './server';
+import type { SetupDeps } from './setup';
+import { createSetupApp } from './setupServer';
 
 /**
  * `starclaw app`: the local console for people who do not live in a terminal (what the installer launches).
@@ -56,8 +59,11 @@ export function openInBrowser(url: string, platform: NodeJS.Platform = process.p
 
 export interface StartAppOptions {
   apiKey: string;
-  engine: StarClawEngine;
-  approver: HttpApprover;
+  /** A running agent. Omit it (and pass `setup`) to start on the guided model setup page instead. */
+  engine?: StarClawEngine;
+  approver?: HttpApprover;
+  /** Setup mode: `boot` starts the agent once a tested model has been saved; the same port then serves the console. */
+  setup?: { home: string; boot: () => Promise<{ engine: StarClawEngine; approver: HttpApprover }>; deps?: SetupDeps; env?: NodeJS.ProcessEnv };
   /** 0 (default) = a free port. */
   port?: number;
   /** Called with the console URL (key in the fragment). Default: open the browser. */
@@ -65,8 +71,25 @@ export interface StartAppOptions {
 }
 
 /** Start the gateway on 127.0.0.1 only. Resolves once listening; `url` carries the key in its fragment. */
-export async function startApp(o: StartAppOptions): Promise<{ url: string; port: number; close: () => Promise<void> }> {
-  const app = createGateway(o.engine, o.approver, o.apiKey);
+export async function startApp(o: StartAppOptions): Promise<{ url: string; port: number; mode: () => 'setup' | 'agent'; close: () => Promise<void> }> {
+  if (!o.engine && !o.setup) throw new Error('startApp needs an engine or setup options');
+  let mode: 'setup' | 'agent' = o.engine ? 'agent' : 'setup';
+  let current: express.RequestHandler = o.engine
+    ? createGateway(o.engine, o.approver ?? new HttpApprover(), o.apiKey)
+    : createSetupApp({
+        apiKey: o.apiKey,
+        home: o.setup!.home,
+        deps: o.setup!.deps,
+        env: o.setup!.env,
+        onSaved: async () => {
+          const b = await o.setup!.boot();
+          current = createGateway(b.engine, b.approver, o.apiKey);
+          mode = 'agent';
+        },
+      });
+  const app = express();
+  app.disable('x-powered-by');
+  app.use((req, res, next) => current(req, res, next));
   const server = await new Promise<import('node:http').Server>((resolve, reject) => {
     const s = app.listen(o.port ?? 0, '127.0.0.1', () => resolve(s));
     s.on('error', reject);
@@ -74,5 +97,5 @@ export async function startApp(o: StartAppOptions): Promise<{ url: string; port:
   const port = (server.address() as AddressInfo).port;
   const url = `http://127.0.0.1:${port}/#key=${encodeURIComponent(o.apiKey)}`;
   if (o.open !== false) (o.open ?? openInBrowser)(url);
-  return { url, port, close: () => new Promise((r) => server.close(() => r())) };
+  return { url, port, mode: () => mode, close: () => new Promise((r) => server.close(() => r())) };
 }
