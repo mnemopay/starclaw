@@ -26,7 +26,9 @@ export function createSetupApp(o: SetupAppOptions) {
     res.set({ 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'", 'Cache-Control': 'no-store' });
     next();
   });
-  app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'setup.html')));
+  // `root` matters: sendFile(absolutePath) refuses any path with a dot-directory in it (404), and the macOS/Linux
+  // installer puts StarClaw under ~/.starclaw-runtime. With `root`, only the part below it is checked.
+  app.get('/', (_req, res) => res.sendFile('setup.html', { root: path.join(__dirname, '..', 'public') }));
 
   const api = express.Router();
   api.use(auth);
