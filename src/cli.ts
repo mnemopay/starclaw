@@ -13,6 +13,7 @@ import { exportArticle12 } from './governance/article12';
 import { defaultPolicy, loadPolicy } from './governance/policy';
 import { subagentsStatus } from './governance/subagent';
 import { describeLlm } from './llm/factory';
+import { LlmError } from './llm/http';
 import { SelectingSandbox } from './sandbox/select';
 import type { Sandbox } from './sandbox/types';
 import { buildImage, cleanContainers, defaultImageTag, imageStatus, listSandboxContainers } from './sandbox/dockerImage';
@@ -50,6 +51,11 @@ const common = (c: Command) =>
     .option('--learn-skills', 'offer to save successful code as reusable skills (each save needs approval)')
     .option('--sandbox <mode>', 'isolation layer: auto (default) | container | process')
     .option('--require-container', 'generated code runs ONLY if the container layer passes its probe');
+
+/** A missing key or model for the configured provider (the case guided setup fixes). */
+function isModelConfigError(e: any): boolean {
+  return (e instanceof LlmError && e.kind === 'config') || /^GROQ_API_KEY is not set/.test(String(e?.message));
+}
 
 function fatal(e: any): never {
   console.error(`starclaw: ${e?.message ?? e}`);
@@ -593,7 +599,8 @@ common(program.command('app'))
   .option('--home <dir>', 'app home directory (its .env, starclaw.policy.json, .starclaw/ and workspace are used)')
   .option('--port <n>', 'port on 127.0.0.1 (default: a free one)', '0')
   .option('--no-open', 'do not open a browser; print the address instead')
-  .action(async (o: CommonCliOptions & { home?: string; port: string; open: boolean }) => {
+  .option('--setup', 'open the guided model setup page even if a model is already configured')
+  .action(async (o: CommonCliOptions & { home?: string; port: string; open: boolean; setup?: boolean }) => {
     try {
       const port = Number(o.port);
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be 0..65535');
@@ -603,16 +610,24 @@ common(program.command('app'))
       const { envFile, apiKey, created } = prepareAppHome(home);
       process.chdir(home);
       dotenv.config({ path: envFile, quiet: true } as any);
-      const approver = new HttpApprover();
-      let engine: StarClawEngine;
-      try {
-        engine = createEngine(o, approver);
-      } catch (e: any) {
-        throw new Error(`${e.message}\n  Put the model key in ${envFile} (see \`starclaw doctor\` for which variable), then start again.`);
+      const boot = async () => {
+        const approver = new HttpApprover();
+        const engine = createEngine(o, approver); // re-reads starclaw.policy.json in the home (the cwd)
+        await engine.boot();
+        return { engine, approver };
+      };
+      let started: Awaited<ReturnType<typeof boot>> | undefined;
+      if (!o.setup) {
+        try {
+          started = await boot();
+        } catch (e: any) {
+          // Only a missing/unusable model sends the user to setup; anything else (e.g. a bad policy) stops here.
+          if (!isModelConfigError(e)) throw e;
+          console.log(`No usable AI model yet (${e.message}). Opening guided setup.`);
+        }
       }
-      await engine.boot();
-      const a = await startApp({ apiKey, engine, approver, port, open: o.open ? undefined : false });
-      console.log(`StarClaw ${VERSION} console: http://127.0.0.1:${a.port}/  (home ${home}${created ? '; new console key written to .env' : ''})`);
+      const a = await startApp({ apiKey, port, open: o.open ? undefined : false, ...(started ?? { setup: { home, boot } }) });
+      console.log(`StarClaw ${VERSION} ${a.mode() === 'setup' ? 'setup' : 'console'}: http://127.0.0.1:${a.port}/  (home ${home}${created ? '; new console key written to .env' : ''}; keys in ${envFile})`);
       if (!o.open) console.log(`open with the key: ${a.url}`);
       console.log('Ctrl+C stops it.');
     } catch (e) {
