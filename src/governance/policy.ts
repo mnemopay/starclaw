@@ -162,13 +162,68 @@ export const DiscordPolicySchema = z
   })
   .strict();
 
+/**
+ * WhatsApp (Meta's official Cloud API; webhooks signed with the app secret). Names of env vars only, never values.
+ * Free-form messages to the owner only work within 24 h of the owner's last message (WhatsApp rule).
+ */
+export const WhatsAppPolicySchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    tokenEnv: EnvNameSchema.default('WHATSAPP_TOKEN'),
+    appSecretEnv: EnvNameSchema.default('WHATSAPP_APP_SECRET'),
+    verifyTokenEnv: EnvNameSchema.default('WHATSAPP_VERIFY_TOKEN'),
+    phoneNumberIdEnv: EnvNameSchema.default('WHATSAPP_PHONE_NUMBER_ID'),
+    /** The owner's number, digits only in international format (e.g. 15551234567). */
+    ownerNumberEnv: EnvNameSchema.default('WHATSAPP_OWNER_NUMBER'),
+    /** Graph API version in the send URL. v25.0 is supported until 2028-07-29 per Meta's changelog (checked 2026-11-18). */
+    graphApiVersion: z.string().regex(/^v\d{1,3}\.\d$/).default('v25.0'),
+    allowPublic: z.boolean().default(false),
+  })
+  .strict();
+
+/** Signal through a signal-cli-rest-api bridge YOU run on this PC (loopback only). */
+export const SignalPolicySchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    bridgeUrl: z.string().url().max(200).default('http://127.0.0.1:8080'),
+    /** The bot's own Signal number (+international). */
+    accountEnv: EnvNameSchema.default('SIGNAL_ACCOUNT'),
+    ownerNumberEnv: EnvNameSchema.default('SIGNAL_OWNER_NUMBER'),
+    allowPublic: z.boolean().default(false),
+  })
+  .strict();
+
+const HOSTNAME = z.string().regex(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i, 'must be a host name like imap.gmail.com');
+
+/** Email: IMAP (TLS) in, SMTP (TLS) out, one owner address; owner mail must pass your provider's DMARC check. */
+export const EmailPolicySchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    imapHost: HOSTNAME.optional(),
+    imapPort: z.number().int().min(1).max(65535).default(993),
+    smtpHost: HOSTNAME.optional(),
+    smtpPort: z.union([z.literal(465), z.literal(587)]).default(465),
+    userEnv: EnvNameSchema.default('EMAIL_USER'),
+    passwordEnv: EnvNameSchema.default('EMAIL_PASSWORD'),
+    ownerAddressEnv: EnvNameSchema.default('EMAIL_OWNER_ADDRESS'),
+    /** Your mail provider's authserv-id: the first word of the Authentication-Results header IT adds (Gmail: mx.google.com). */
+    authservId: HOSTNAME.optional(),
+    pollSeconds: z.number().int().min(15).max(3600).default(60),
+    allowPublic: z.boolean().default(false),
+  })
+  .strict()
+  .superRefine((e, ctx) => {
+    if (!e.enabled) return;
+    for (const k of ['imapHost', 'smtpHost', 'authservId'] as const) if (!e[k]) ctx.addIssue({ code: 'custom', path: [k], message: `email.${k} is required when email.enabled is true` });
+  });
+
 /** The one loopback listener shared by Slack and Discord, and which channel carries approvals and owner notifications. */
 export const ChannelsPolicySchema = z
   .object({
     /** Listens on 127.0.0.1 ONLY. Exposing it to Slack/Discord needs a tunnel/reverse proxy that YOU set up (see README). */
     port: z.number().int().min(1024).max(65535).default(8787),
     /** Which channel carries approvals and tools.notifyOwner. Telegram stays the default (existing behaviour). */
-    ownerChannel: z.enum(['telegram', 'slack', 'discord']).default('telegram'),
+    ownerChannel: z.enum(['telegram', 'slack', 'discord', 'whatsapp', 'signal', 'email']).default('telegram'),
     /** A signed request older (or newer) than this is rejected. */
     timestampToleranceSeconds: z.number().int().min(30).max(900).default(300),
     maxBodyBytes: z.number().int().min(1024).max(1_000_000).default(262_144),
@@ -387,6 +442,9 @@ export const PolicySchema = z
     /** Slack / Discord channels (disabled by default). */
     slack: SlackPolicySchema.default(SlackPolicySchema.parse({})),
     discord: DiscordPolicySchema.default(DiscordPolicySchema.parse({})),
+    whatsapp: WhatsAppPolicySchema.default(WhatsAppPolicySchema.parse({})),
+    signal: SignalPolicySchema.default(SignalPolicySchema.parse({})),
+    email: EmailPolicySchema.default(EmailPolicySchema.parse({})),
     channels: ChannelsPolicySchema.default(ChannelsPolicySchema.parse({})),
     /** Governed sub-agents (tools.spawnAgent): children that can only ever hold LESS authority than the run that starts them. Disabled by default. */
     subagents: SubagentsPolicySchema.default(SubagentsPolicySchema.parse({})),
@@ -398,7 +456,7 @@ export const PolicySchema = z
   .strict()
   .superRefine((p, ctx) => {
     const oc = p.channels.ownerChannel;
-    if ((oc === 'slack' && !p.slack.enabled) || (oc === 'discord' && !p.discord.enabled)) {
+    if (oc !== 'telegram' && !p[oc].enabled) {
       ctx.addIssue({ code: 'custom', path: ['channels', 'ownerChannel'], message: `channels.ownerChannel is "${oc}" but ${oc}.enabled is false` });
     }
   });

@@ -75,8 +75,8 @@ export async function runDaemon(o: DaemonOptions): Promise<{ stop: () => void }>
     poller?.stop();
     throw e;
   }
-  const names = [channels.slack && 'slack', channels.discord && 'discord'].filter(Boolean).join('+') || 'off';
-  console.error(`starclaw-daemon: running (telegram ${poller ? 'on' : 'off'}, webhook channels ${names}${hooks ? ' on 127.0.0.1:' + hooks.port : ''}, owner channel ${ownerChannel}, ${engine.jobs.list().length} job(s))`);
+  const names = (['slack', 'discord', 'whatsapp', 'signal', 'email'] as const).filter((n) => channels[n]).join('+') || 'off';
+  console.error(`starclaw-daemon: running (telegram ${poller ? 'on' : 'off'}, channels ${names}${hooks?.port ? ' (webhooks on 127.0.0.1:' + hooks.port + ')' : ''}, owner channel ${ownerChannel}, ${engine.jobs.list().length} job(s))`);
   return {
     stop: () => {
       scheduler.stop();

@@ -6,6 +6,9 @@ import type { SlackApi } from '../channels/slack';
 import { assertSlackOwnerId, slackEscape } from '../channels/slack';
 import type { TelegramApi } from '../channels/telegram';
 import type { Policy } from '../governance/policy';
+import type { MailClient } from '../channels/email';
+import type { SignalApi } from '../channels/signal';
+import { assertWhatsAppOwner, type WhatsAppApi } from '../channels/whatsapp';
 
 /** Sends a message to the ONE configured owner. There is deliberately no recipient parameter anywhere. */
 export interface OwnerNotifier {
@@ -84,5 +87,36 @@ export class NotifyLimiter {
     ts.push(now);
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     fs.writeFileSync(this.file, JSON.stringify(ts));
+  }
+}
+
+/** WhatsApp message to the ONE configured owner (works only within 24 h of the owner's last message: WhatsApp rule). */
+export class WhatsAppNotifier implements OwnerNotifier {
+  readonly name = 'whatsapp';
+  constructor(private readonly api: WhatsAppApi, private readonly owner: string) {
+    assertWhatsAppOwner(owner, 'WhatsAppNotifier');
+  }
+  async send(text: string): Promise<void> {
+    await this.api.sendText(this.owner, text.slice(0, 4000));
+  }
+}
+
+/** Signal message to the ONE configured owner, through the local bridge. */
+export class SignalNotifier implements OwnerNotifier {
+  readonly name = 'signal';
+  constructor(private readonly api: SignalApi, private readonly owner: string) {
+    if (!/^\+[1-9]\d{6,14}$/.test(owner)) throw new Error("SignalNotifier requires the owner's number");
+  }
+  async send(text: string): Promise<void> {
+    await this.api.send(this.owner, text.slice(0, 4000));
+  }
+}
+
+/** Email to the ONE configured owner. */
+export class EmailNotifier implements OwnerNotifier {
+  readonly name = 'email';
+  constructor(private readonly client: MailClient, private readonly owner: string) {}
+  async send(text: string): Promise<void> {
+    await this.client.send(this.owner, 'StarClaw', text.slice(0, 20_000));
   }
 }

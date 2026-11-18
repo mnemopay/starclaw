@@ -20,7 +20,7 @@ import { buildImage, cleanContainers, defaultImageTag, imageStatus, listSandboxC
 import { StarClawEngine } from './engine';
 import { runDaemon } from './daemon';
 import { browserStatus } from './browser/status';
-import { discordStatus, listenerStatus, slackStatus } from './channels/status';
+import { discordStatus, emailStatus, listenerStatus, signalStatus, slackStatus, whatsappStatus } from './channels/status';
 import { resolveDiscordConfig } from './channels/config';
 import { FetchDiscordApi, registerDiscordCommand } from './channels/discord';
 import { Ed25519Signer, fingerprint } from './governance/signer';
@@ -248,7 +248,7 @@ program
       console.log(sr.line);
       for (const w of sr.warnings) console.log('  WARNING: ' + w);
       let channelsBroken = false;
-      for (const cs of [slackStatus(policy, process.env), discordStatus(policy, process.env), listenerStatus(policy)]) {
+      for (const cs of [slackStatus(policy, process.env), discordStatus(policy, process.env), whatsappStatus(policy, process.env), signalStatus(policy, process.env), emailStatus(policy, process.env), listenerStatus(policy)]) {
         console.log(cs.line);
         for (const w of cs.warnings) console.log('  WARNING: ' + w);
         channelsBroken = channelsBroken || cs.broken;

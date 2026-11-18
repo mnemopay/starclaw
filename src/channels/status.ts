@@ -1,5 +1,5 @@
 import type { Policy } from '../governance/policy';
-import { ChannelConfigError, resolveDiscordConfig, resolveSlackConfig } from './config';
+import { ChannelConfigError, resolveDiscordConfig, resolveEmailConfig, resolveSignalConfig, resolveSlackConfig, resolveWhatsAppConfig } from './config';
 
 export interface ChannelStatus {
   line: string;
@@ -38,10 +38,40 @@ export function discordStatus(policy: Policy, env: Record<string, string | undef
 /** The shared listener line (only when a webhook channel is enabled). */
 export function listenerStatus(policy: Policy): ChannelStatus {
   const c = policy.channels;
-  if (!policy.slack.enabled && !policy.discord.enabled) return { line: `Channels: no webhook channel enabled; owner channel: ${c.ownerChannel}`, broken: false, warnings: [] };
+  if (!policy.slack.enabled && !policy.discord.enabled && !policy.whatsapp.enabled) return { line: `Channels: no webhook channel enabled; owner channel: ${c.ownerChannel}`, broken: false, warnings: [] };
   return {
-    line: `Channels: webhook listener 127.0.0.1:${c.port} (loopback only; Slack/Discord need a tunnel or reverse proxy YOU run to reach it); owner channel (approvals + notifyOwner): ${c.ownerChannel}; signature window ${c.timestampToleranceSeconds}s`,
+    line: `Channels: webhook listener 127.0.0.1:${c.port} (loopback only; Slack/Discord/WhatsApp need a tunnel or reverse proxy YOU run to reach it); owner channel (approvals + notifyOwner): ${c.ownerChannel}; signature window ${c.timestampToleranceSeconds}s`,
     broken: false,
     warnings: [],
   };
+}
+
+function channelStatus(label: string, enabled: boolean, names: string[], env: Record<string, string | undefined>, resolve: () => unknown, allowPublic: boolean, extra: string[] = []): ChannelStatus {
+  if (!enabled) return { line: `${label}: disabled`, broken: false, warnings: [] };
+  const base = `${label}: enabled; ${names.map((n) => mark(env, n)).join('; ')}; non-owner messages: ${allowPublic ? 'run TAINTED' : 'ignored'}`;
+  try {
+    resolve();
+    return { line: base + '; config OK', broken: false, warnings: [...extra, ...(allowPublic ? [`${label.toLowerCase()}.allowPublic is on: anyone who can message it can start a (tainted) goal and spend your LLM budget`] : [])] };
+  } catch (e) {
+    return { line: base, broken: true, warnings: [e instanceof ChannelConfigError ? e.message : `invalid ${label} configuration`] };
+  }
+}
+
+export function whatsappStatus(policy: Policy, env: Record<string, string | undefined>): ChannelStatus {
+  const w = policy.whatsapp;
+  return channelStatus('WhatsApp', w.enabled, [w.tokenEnv, w.appSecretEnv, w.verifyTokenEnv, w.phoneNumberIdEnv, w.ownerNumberEnv], env, () => resolveWhatsAppConfig(policy, env), w.allowPublic, [
+    'WhatsApp only delivers approvals/notifications within 24 h of your last message to the bot: message it first',
+  ]);
+}
+
+export function signalStatus(policy: Policy, env: Record<string, string | undefined>): ChannelStatus {
+  const s = policy.signal;
+  return channelStatus('Signal', s.enabled, [s.accountEnv, s.ownerNumberEnv], env, () => resolveSignalConfig(policy, env), s.allowPublic, [`needs the signal-cli-rest-api bridge running at ${s.bridgeUrl}`]);
+}
+
+export function emailStatus(policy: Policy, env: Record<string, string | undefined>): ChannelStatus {
+  const e = policy.email;
+  return channelStatus('Email', e.enabled, [e.userEnv, e.passwordEnv, e.ownerAddressEnv], env, () => resolveEmailConfig(policy, env), e.allowPublic, [
+    `owner mail is accepted only with dmarc=pass in the Authentication-Results header from ${e.authservId ?? '(email.authservId not set)'}`,
+  ]);
 }

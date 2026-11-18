@@ -14,6 +14,8 @@ export interface ChannelRoute {
   path: string;
   /** Must verify the request signature itself before trusting anything in the body. Must not throw secrets. */
   handle(req: RouteRequest): Promise<RouteResponse>;
+  /** Optional GET handler (only WhatsApp's one-time webhook verification uses it). Routes without it stay POST-only. */
+  get?(query: URLSearchParams): Promise<RouteResponse>;
 }
 
 /**
@@ -32,11 +34,19 @@ export function createChannelServer(o: { routes: ChannelRoute[]; maxBodyBytes: n
       res.writeHead(status, { 'content-type': typeof body === 'string' ? 'text/plain; charset=utf-8' : 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
       res.end(text);
     };
-    const path = (req.url ?? '').split('?')[0];
+    const [path, qs = ''] = (req.url ?? '').split('?', 2);
     const route = routes.get(path);
     if (!route) return send(404, { error: 'not found' });
+    if (req.method === 'GET' && route.get) {
+      if (qs.length > 2000) return send(414, { error: 'too long' });
+      route
+        .get(new URLSearchParams(qs))
+        .then((r) => send(r.status, r.body))
+        .catch(() => send(500, { error: 'internal error' }));
+      return;
+    }
     if (req.method !== 'POST') {
-      res.setHeader('allow', 'POST');
+      res.setHeader('allow', route.get ? 'GET, POST' : 'POST');
       return send(405, { error: 'method not allowed' });
     }
     const declared = Number(req.headers['content-length'] ?? '0');
