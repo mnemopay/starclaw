@@ -59,6 +59,8 @@ else
   fi
   NODE_BIN="$dest/bin/node"
 fi
+# Dependency install scripts (e.g. better-sqlite3's prebuild-install) run `node` from PATH: make it ours.
+export PATH="$(dirname "$NODE_BIN"):$PATH"
 NPM_CLI="$(dirname "$NODE_BIN")/../lib/node_modules/npm/bin/npm-cli.js"
 [ -f "$NPM_CLI" ] || NPM_CLI="$(dirname "$(readlink -f "$NODE_BIN" 2>/dev/null || echo "$NODE_BIN")")/../lib/node_modules/npm/bin/npm-cli.js"
 [ -f "$NPM_CLI" ] || die "could not find npm next to $NODE_BIN"
