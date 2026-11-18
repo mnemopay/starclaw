@@ -1,0 +1,90 @@
+name: windows-installer
+
+# Builds StarClaw-Setup-<version>.exe and proves it on a clean Windows VM: silent install, the console
+# starts from the installed files, its API answers with the generated key, uninstall keeps user data.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: ["installer/**", ".github/workflows/windows-installer.yml", "src/app.ts", "src/cli.ts", "public/**", "package.json"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25.9.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack
+        id: pack
+        shell: pwsh
+        run: |
+          $tgz = (npm pack --silent | Select-Object -Last 1).Trim()
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "tgz=$tgz" | Out-File $env:GITHUB_OUTPUT -Append
+          "version=$version" | Out-File $env:GITHUB_OUTPUT -Append
+      - name: Stage Node + StarClaw
+        shell: pwsh
+        run: ./installer/windows/build.ps1 -Tarball ${{ steps.pack.outputs.tgz }} -Out installer/windows/staging
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; if ($LASTEXITCODE -ne 0) { throw 'could not install Inno Setup' } }
+          & $iscc /Qp "/DAppVersion=${{ steps.pack.outputs.version }}" "/DStaging=$PWD\installer\windows\staging" installer\windows\starclaw.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed ($LASTEXITCODE)" }
+          Get-ChildItem installer\windows\output | ForEach-Object { "{0}  {1:N1} MB  sha256 {2}" -f $_.Name, ($_.Length / 1MB), (Get-FileHash $_.FullName).Hash.ToLower() }
+
+      - name: "Smoke test: install, run, uninstall"
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem installer\windows\output\StarClaw-Setup-*.exe).FullName
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/GROQKEY=gsk_ci_dummy_never_called',"/LOG=$env:RUNNER_TEMP\install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log"; throw "installer exit $($p.ExitCode)" }
+          $appDir = "$env:LOCALAPPDATA\Programs\StarClaw"
+          $home_ = "$env:LOCALAPPDATA\StarClaw"
+          foreach ($f in 'StarClaw.cmd','node\node.exe','app\node_modules\starclaw\dist\cli.js') { if (-not (Test-Path "$appDir\$f")) { throw "missing after install: $f" } }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\StarClaw.lnk")) { throw 'no Start menu shortcut' }
+          if ((Get-Content "$home_\.env" -Raw) -notmatch 'GROQ_API_KEY=gsk_ci_dummy_never_called') { throw 'installer did not write the model key' }
+          & "$appDir\node\node.exe" --version
+
+          # Start the console from the installed files, no GROQ_API_KEY in the environment: it must come from .env.
+          Remove-Item Env:GROQ_API_KEY -ErrorAction SilentlyContinue
+          $log = "$env:RUNNER_TEMP\app.log"
+          $srv = Start-Process "$appDir\node\node.exe" -ArgumentList "`"$appDir\app\node_modules\starclaw\dist\cli.js`"",'app','--no-open','--sandbox','process' -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WorkingDirectory $appDir
+          $port = $null
+          for ($i = 0; $i -lt 90 -and -not $port; $i++) {
+            Start-Sleep 1
+            if ($srv.HasExited) { Get-Content $log, "$log.err"; throw "app exited $($srv.ExitCode)" }
+            $m = Select-String -Path $log -Pattern 'console: http://127\.0\.0\.1:(\d+)/' -ErrorAction SilentlyContinue
+            if ($m -and (Select-String -Path $log -Pattern 'Ctrl\+C' -Quiet)) { $port = $m.Matches[0].Groups[1].Value }
+          }
+          if (-not $port) { Get-Content $log, "$log.err"; throw 'console did not start in 90s' }
+          $key = ((Get-Content "$home_\.env") | Where-Object { $_ -match '^STARCLAW_API_KEY=' }) -replace '^STARCLAW_API_KEY=', ''
+          try { Invoke-RestMethod "http://127.0.0.1:$port/api/status"; throw 'API answered without the key' } catch { if ($_.Exception.Response.StatusCode.value__ -ne 401) { throw } }
+          $s = Invoke-RestMethod "http://127.0.0.1:$port/api/status" -Headers @{ Authorization = "Bearer $key" }
+          if ($s.tainted -ne $false) { throw "unexpected status: $($s | ConvertTo-Json)" }
+          if ((Invoke-WebRequest "http://127.0.0.1:$port/").Content -notmatch 'StarClaw Console') { throw 'console page not served' }
+          if (-not (Test-Path "$home_\.starclaw\audit.jsonl")) { throw 'audit log not in the app home' }
+          Write-Host "console OK on port $port; status $($s | ConvertTo-Json -Compress)"
+          Stop-Process -Id $srv.Id
+
+          $u = Start-Process "$appDir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          for ($i = 0; $i -lt 30 -and (Test-Path "$appDir\node"); $i++) { Start-Sleep 1 }
+          if (Test-Path "$appDir\node") { throw 'uninstall left the program files' }
+          if (-not (Test-Path "$home_\.starclaw\audit.jsonl")) { throw 'uninstall deleted user data' }
+          Write-Host 'install, run, uninstall: OK (user data kept)'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StarClaw-Setup-${{ steps.pack.outputs.version }}-UNSIGNED
+          path: installer/windows/output/*.exe
+          if-no-files-found: error
