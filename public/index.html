@@ -58,7 +58,7 @@
 <div id="chat"><div class="empty" id="empty">Ask StarClaw to do something. Every action it takes is checked against your policy, asks you when needed, and is written to a signed audit log.</div></div>
 <div id="approvals"></div>
 <form id="composer"><textarea id="goal" rows="1" placeholder="Message StarClaw  (Enter to send, Shift+Enter for a new line)"></textarea><button id="send" type="submit">Send</button></form>
-<div id="history"><div class="panel"><div class="head"><strong id="histtitle">Earlier sessions</strong><button class="ghost" id="histclose">Close</button></div><div class="body" id="histbody"></div></div></div>
+<div id="history"><div class="panel"><div class="head"><strong id="histtitle">Earlier sessions</strong><button class="ghost" id="histclose">Close</button></div><form id="searchform" style="padding:8px 16px;border:0"><input id="search" type="search" placeholder="Search all conversations" style="flex:1;background:#0f1113;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px;font:inherit"></form><div class="body" id="histbody"></div></div></div>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -208,6 +208,23 @@
     }).catch(function (e) { body.textContent = e.message; });
   };
   $('histclose').onclick = function () { $('history').className = ''; };
+  $('searchform').onsubmit = function (ev) {
+    ev.preventDefault();
+    var q = $('search').value.trim(); if (q.length < 2) return;
+    var body = $('histbody'); body.textContent = 'Searching…'; $('histtitle').textContent = 'Search results';
+    api('/search?q=' + encodeURIComponent(q)).then(function (r) {
+      body.textContent = '';
+      if (!r.hits.length) { var n = document.createElement('div'); n.className = 'note'; n.textContent = 'No matches.'; body.appendChild(n); return; }
+      r.hits.forEach(function (h) {
+        var head = document.createElement('div'); head.className = 'note';
+        head.textContent = 'Session ' + (h.at ? new Date(h.at).toLocaleString() : h.sessionId);
+        body.appendChild(head);
+        if (h.before) bubble(h.before, body);
+        bubble(h, body);
+        if (h.after) bubble(h.after, body);
+      });
+    }).catch(function (e) { body.textContent = e.message; });
+  };
   start();
 })();
 </script>

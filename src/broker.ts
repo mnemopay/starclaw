@@ -14,6 +14,7 @@ import { MCP_TOOL_RE } from './governance/policy';
 import { TaintedFileStore } from './governance/taint';
 import { Action } from './governance/types';
 import type { McpManager } from './mcp/manager';
+import { searchTranscripts } from './channels/transcript';
 import { safeGet, parseHttpUrl } from './net/safeFetch';
 import { extractReadable, looksBinary, looksLikeHtml } from './net/readable';
 import { createSearchProvider, SearchProvider } from './search/providers';
@@ -102,6 +103,7 @@ const SpendArgs = z.object({ cents: z.number(), payee: z.string().min(1).max(200
 const McpListArgs = z.object({ server: z.string().max(40).optional() }).strict();
 const McpCallArgs = z.object({ server: z.string().min(1).max(40), tool: z.string().min(1).max(64), args: z.record(z.string(), z.unknown()).default({}) }).strict();
 const MAX_MCP_ARGS_CHARS = 100_000;
+const SearchConvArgs = z.object({ query: z.string().min(2).max(200), limit: z.number().int().min(1).max(20).default(8) }).strict();
 
 /**
  * Executes the capabilities that sandboxed code asks for. Every call is turned into an Action and passed through
@@ -222,6 +224,8 @@ export class Broker {
         return this.mcpList(McpListArgs.parse(call.args ?? {}));
       case 'mcpCall':
         return this.mcpCall(McpCallArgs.parse(call.args));
+      case 'searchConversations':
+        return this.searchConversations(SearchConvArgs.parse(call.args));
       default:
         throw new Error(`unknown tool ${call.name}`);
     }
@@ -913,6 +917,23 @@ export class Broker {
       (r) => ({ tool: 'browseType', selector: a.selector, host: t.host, textChars: chars, textSha256, submit, requestId: safeRequestId(r.res.request_id, a.text), clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), untrusted: true }),
     );
     return { untrusted: true as const, actionsLeft: b.maxActions - t.used, typedChars: chars, textSha256, data: out.res.data };
+  }
+
+  // ---- the owner's earlier console conversations --------------------------------------------------------------
+
+  /**
+   * Search the owner's earlier console conversations (`<stateDir>/console`). Reading them is not an outside action, but
+   * a reply that was built from untrusted content is still untrusted: if any returned entry (or its context) was marked
+   * tainted, this session becomes tainted too, exactly like tainted memory.
+   */
+  private async searchConversations(a: { query: string; limit: number }) {
+    if (!actionIsLive()) throw new Error('sandbox run has ended');
+    const hits = searchTranscripts(path.join(this.stateDir, 'console'), a.query, { limit: a.limit });
+    const tainted = hits.some((h) => h.tainted || h.before?.tainted || h.after?.tainted);
+    if (tainted) this.gov.taint.mark('tainted-memory', `conversations:${a.query.slice(0, 80)}`);
+    this.gov.audit.append('conversations.searched', { queryChars: a.query.length, hits: hits.length, tainted });
+    const slim = (e?: { kind: string; text: string; at: string }) => e && { kind: e.kind, at: e.at, text: e.text.slice(0, 1500) };
+    return { untrusted: tainted, hits: hits.map((h) => ({ session: h.sessionId, at: h.at, kind: h.kind, text: h.text.slice(0, 2000), before: slim(h.before), after: slim(h.after) })) };
   }
 
   // ---- governed MCP (owner-declared servers only) -----------------------------------------------------------------

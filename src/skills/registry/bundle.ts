@@ -38,7 +38,8 @@ export interface BundleLimits {
 }
 
 /** Tools a registry skill may declare. `runCommand` (unsandboxed host) and `scheduleCreate` can NEVER be declared. */
-export const DECLARABLE_TOOLS = DEFAULT_TOOL_NAMES.filter((t) => t !== 'runCommand' && t !== 'scheduleCreate' && t !== 'spawnAgent') as [string, ...string[]];
+// searchConversations reads the owner's private history: never available to a third-party skill.
+export const DECLARABLE_TOOLS = DEFAULT_TOOL_NAMES.filter((t) => t !== 'runCommand' && t !== 'scheduleCreate' && t !== 'spawnAgent' && t !== 'searchConversations') as [string, ...string[]];
 
 const SkillId = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,59}$/, 'skill id: lowercase letters, digits, - and _ (max 60)');
 const Version = z.string().regex(/^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/, 'version must be MAJOR.MINOR.PATCH');
