@@ -1,48 +1,13 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StarClaw security: what is and is not protected</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2215%22 fill=%22none%22 stroke=%22currentColor%22 stroke-width=%222%22/%3E%3Cpath d=%22M16 5l3.1 7.1 7.7.7-5.8 5.1 1.7 7.5L16 21.4 9.3 25.4l1.7-7.5-5.8-5.1 7.7-.7z%22 fill=%22currentColor%22/%3E%3C/svg%3E">
-<meta name="description" content="Plain statement of what the StarClaw alpha protects, what it does not, and its known limits. It does not prevent prompt injection.">
-<meta name="color-scheme" content="light dark">
-<meta property="og:type" content="website">
-<meta property="og:title" content="StarClaw security: what is and is not protected">
-<meta property="og:description" content="Plain statement of what the StarClaw alpha protects, what it does not, and its known limits. It does not prevent prompt injection.">
-<meta property="og:site_name" content="StarClaw">
-<meta name="twitter:card" content="summary">
-<link rel="stylesheet" href="../style.css">
-</head>
-<body>
-<a class="skip" href="#main">Skip to content</a>
-<div class="alpha" role="note">
-  <div class="wrap"><strong>Alpha software.</strong> StarClaw 2.x is an alpha and is not recommended for customers, production use or anyone who needs a guarantee.</div>
-</div>
-<header class="site">
-  <div class="wrap">
-    <a class="brand" href="../index.html"><svg viewBox="0 0 32 32" role="img" aria-label="StarClaw logo" focusable="false"><circle cx="16" cy="16" r="15" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 5l3.1 7.1 7.7.7-5.8 5.1 1.7 7.5L16 21.4 9.3 25.4l1.7-7.5-5.8-5.1 7.7-.7z" fill="currentColor"/></svg><span>StarClaw <span class="muted">alpha</span></span></a>
-    <nav aria-label="Main">
-      <ul>
-          <li><a href="../index.html">Home</a></li>
-          <li><a href="../security/index.html" aria-current="page">Security</a></li>
-          <li><a href="../docs/index.html">Docs</a></li>
-          <li><a href="../download/index.html">Download</a></li>
-      </ul>
-    </nav>
-  </div>
-</header>
-<main id="main">
-  <div class="wrap">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090d0b"><title>StarClaw — Your control, by design</title><meta name="description" content="Powerful agents need clear boundaries. Here is what StarClaw protects, what it assumes, and where your judgment still matters."><link rel="canonical" href="https://starclaw.dev/security/"><meta property="og:title" content="StarClaw — Your control, by design"><meta property="og:description" content="Powerful agents need clear boundaries. Here is what StarClaw protects, what it assumes, and where your judgment still matters."><meta property="og:type" content="website"><meta property="og:site_name" content="StarClaw"><meta name="twitter:card" content="summary_large_image"><link rel="icon" href="../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../assets/fonts/fonts.css"><link rel="stylesheet" href="../style.css"><script src="../app.js" defer></script></head><body class="document-page"><a class="skip" href="#main">Skip to content</a><header class="site-header"><div class="container nav-inner"><a class="brand" href="../index.html" aria-label="StarClaw home"><svg viewBox="0 0 40 40" aria-hidden="true" class="brand-mark"><path d="M20 2.5 24.5 12.2 35.2 9.5 30.2 19.2 37 27.9 26.2 28.4 20 37.5 15.5 27.8 4.8 30.5 9.8 20.8 3 12.1 13.8 11.6Z" fill="currentColor"/><path d="m20 12 2.5 5.5 5.5 2.5-5.5 2.5L20 28l-2.5-5.5L12 20l5.5-2.5Z" fill="var(--ink,#090d0b)"/></svg><span>starclaw<span class="brand-period">.</span></span></a><button class="menu-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="main-navigation"><span></span><span></span></button><nav id="main-navigation" aria-label="Main navigation"><a href="../index.html#workflows">What it does</a><a href="../security/index.html" aria-current="page">Your control</a><a href="../docs/index.html" >Docs</a><a class="github-link" href="https://github.com/mnemopay/starclaw" aria-label="StarClaw on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.86c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.82.09-.65.35-1.08.64-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03a9.58 9.58 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg></a><a class="button button-small" href="../download/index.html">Get StarClaw <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.6"/></svg></a></nav></div></header><main id="main"><section class="document-hero container"><span class="eyebrow">STARCLAW / SECURITY</span><h1>Your control.<br><span>By design.</span></h1><p>Powerful agents need clear boundaries. Here is what StarClaw protects, what it assumes, and where your judgment still matters.</p></section><div class="container document-layout"><aside class="document-sidebar"><span class="mono">ON THIS PAGE</span><a href="#isolation">Isolation & boundaries<span>↗</span></a><a href="#permissions">Threat model<span>↗</span></a><a href="#audit">Audit & residual risks<span>↗</span></a><div class="sidebar-note"><i class="status-dot"></i> Developer alpha<br><span>Read the limits.<br>Build with intention.</span></div></aside><article class="document-content">
 
-    <h1>Security: what is and is not protected</h1>
+
     <div class="callout warn">
       <p><strong>StarClaw does not prevent prompt injection.</strong> It assumes the model will sometimes be steered by hostile content. It limits what that can cost you: risky actions need a human, who is shown the exact action and where the untrusted content came from, and everything is provable afterwards.</p>
       <p>This is an alpha. It has had no external review or fuzzing. Do not treat it as secure, production-ready or consumer-ready.</p>
     </div>
     <p>This page restates the "What is and is not protected" and "Known limits" sections of the <a href="https://github.com/mnemopay/starclaw/blob/main/README.md">README</a>, and parts of <a href="https://github.com/mnemopay/starclaw/blob/main/SECURITY.md">SECURITY.md</a>. If this page and those files ever disagree, the files in the repository win.</p>
 
-    <h2>What is and is not protected</h2>
+    <h2 id="isolation">What is and is not protected</h2>
     <div class="table-wrap">
     <table>
       <thead><tr><th scope="col">Threat</th><th scope="col">Result</th></tr></thead>
@@ -73,11 +38,11 @@
       <li>Slack, Discord and the browser tools were verified only against local fakes, not the real services.</li>
     </ul>
 
-    <h2>Threat model in short</h2>
+    <h2 id="permissions">Threat model in short</h2>
     <p><strong>Considered:</strong> hostile content that tries to steer the model; a misbehaving or compromised model that emits arbitrary code; a local attacker who can write to the state directory but does not have the signing key.</p>
     <p><strong>Not considered:</strong> an attacker who can read the signing key or run code as your user outside StarClaw; a malicious maintainer or dependency; physical access; side channels.</p>
 
-    <h2>Residual risks, plainly</h2>
+    <h2 id="audit">The audit trail and residual risks</h2>
     <ol>
       <li>Prompt injection works against the model. StarClaw only gates what the model can do. A human who approves is the last line of defence.</li>
       <li>The process layer is a seat belt. A container or kernel escape is not covered.</li>
@@ -89,13 +54,4 @@
     <h2>Reporting a problem</h2>
     <p>SECURITY.md asks that vulnerabilities be reported privately to the maintainer, and that exploits not be filed as public issues. Report them to <a href="mailto:security@starclaw.dev">security@starclaw.dev</a>.</p>
 
-  </div>
-</main>
-<footer class="site">
-  <div class="wrap">
-    <p>StarClaw is alpha software under the <a href="https://github.com/mnemopay/starclaw/blob/main/LICENSE">Apache-2.0 license</a>. Source: <a href="https://github.com/mnemopay/starclaw">github.com/mnemopay/starclaw</a>.</p>
-    <p>Copyright (c) 2026 Jeremiah Omiagbo / J&amp;B Enterprise LLC. This site has no scripts, no cookies, no forms and no tracking.</p>
-  </div>
-</footer>
-</body>
-</html>
+  </article></div></main><footer class="site-footer"><div class="container"><div class="footer-top"><a class="brand" href="../index.html"><svg viewBox="0 0 40 40" aria-hidden="true" class="brand-mark"><path d="M20 2.5 24.5 12.2 35.2 9.5 30.2 19.2 37 27.9 26.2 28.4 20 37.5 15.5 27.8 4.8 30.5 9.8 20.8 3 12.1 13.8 11.6Z" fill="currentColor"/><path d="m20 12 2.5 5.5 5.5 2.5-5.5 2.5L20 28l-2.5-5.5L12 20l5.5-2.5Z" fill="var(--ink,#090d0b)"/></svg><span>starclaw<span class="brand-period">.</span></span></a><p>A little more autonomous.<br>A lot more possible.</p><div class="footer-links"><a href="https://github.com/mnemopay/starclaw">GitHub ↗</a><a href="../docs/index.html">Documentation</a><a href="../security/index.html">Security model</a><a href="mailto:hello@starclaw.dev">Say hello ↗</a></div></div><div class="footer-bottom"><span>© 2026 J&amp;B Enterprise LLC · Apache-2.0</span><span><i class="status-dot"></i> Built in the open. Still in alpha.</span><a href="mailto:security@starclaw.dev">Report a vulnerability ↗</a></div></div></footer></body></html>

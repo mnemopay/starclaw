@@ -1,43 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StarClaw docs and command reference</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2215%22 fill=%22none%22 stroke=%22currentColor%22 stroke-width=%222%22/%3E%3Cpath d=%22M16 5l3.1 7.1 7.7.7-5.8 5.1 1.7 7.5L16 21.4 9.3 25.4l1.7-7.5-5.8-5.1 7.7-.7z%22 fill=%22currentColor%22/%3E%3C/svg%3E">
-<meta name="description" content="Links to the StarClaw repository documentation and the list of command-line commands that exist in the current source.">
-<meta name="color-scheme" content="light dark">
-<meta property="og:type" content="website">
-<meta property="og:title" content="StarClaw docs and command reference">
-<meta property="og:description" content="Links to the StarClaw repository documentation and the list of command-line commands that exist in the current source.">
-<meta property="og:site_name" content="StarClaw">
-<meta name="twitter:card" content="summary">
-<link rel="stylesheet" href="../style.css">
-</head>
-<body>
-<a class="skip" href="#main">Skip to content</a>
-<div class="alpha" role="note">
-  <div class="wrap"><strong>Alpha software.</strong> StarClaw 2.x is an alpha and is not recommended for customers, production use or anyone who needs a guarantee.</div>
-</div>
-<header class="site">
-  <div class="wrap">
-    <a class="brand" href="../index.html"><svg viewBox="0 0 32 32" role="img" aria-label="StarClaw logo" focusable="false"><circle cx="16" cy="16" r="15" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 5l3.1 7.1 7.7.7-5.8 5.1 1.7 7.5L16 21.4 9.3 25.4l1.7-7.5-5.8-5.1 7.7-.7z" fill="currentColor"/></svg><span>StarClaw <span class="muted">alpha</span></span></a>
-    <nav aria-label="Main">
-      <ul>
-          <li><a href="../index.html">Home</a></li>
-          <li><a href="../security/index.html">Security</a></li>
-          <li><a href="../docs/index.html" aria-current="page">Docs</a></li>
-          <li><a href="../download/index.html">Download</a></li>
-      </ul>
-    </nav>
-  </div>
-</header>
-<main id="main">
-  <div class="wrap">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090d0b"><title>StarClaw — Documentation</title><meta name="description" content="From your first goal to your own policy. The essentials, the commands, and the source of truth."><link rel="canonical" href="https://starclaw.dev/docs/"><meta property="og:title" content="StarClaw — Documentation"><meta property="og:description" content="From your first goal to your own policy. The essentials, the commands, and the source of truth."><meta property="og:type" content="website"><meta property="og:site_name" content="StarClaw"><meta name="twitter:card" content="summary_large_image"><link rel="icon" href="../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../assets/fonts/fonts.css"><link rel="stylesheet" href="../style.css"><script src="../app.js" defer></script></head><body class="document-page"><a class="skip" href="#main">Skip to content</a><header class="site-header"><div class="container nav-inner"><a class="brand" href="../index.html" aria-label="StarClaw home"><svg viewBox="0 0 40 40" aria-hidden="true" class="brand-mark"><path d="M20 2.5 24.5 12.2 35.2 9.5 30.2 19.2 37 27.9 26.2 28.4 20 37.5 15.5 27.8 4.8 30.5 9.8 20.8 3 12.1 13.8 11.6Z" fill="currentColor"/><path d="m20 12 2.5 5.5 5.5 2.5-5.5 2.5L20 28l-2.5-5.5L12 20l5.5-2.5Z" fill="var(--ink,#090d0b)"/></svg><span>starclaw<span class="brand-period">.</span></span></a><button class="menu-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="main-navigation"><span></span><span></span></button><nav id="main-navigation" aria-label="Main navigation"><a href="../index.html#workflows">What it does</a><a href="../security/index.html" >Your control</a><a href="../docs/index.html" aria-current="page">Docs</a><a class="github-link" href="https://github.com/mnemopay/starclaw" aria-label="StarClaw on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.86c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.82.09-.65.35-1.08.64-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03a9.58 9.58 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg></a><a class="button button-small" href="../download/index.html">Get StarClaw <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.6"/></svg></a></nav></div></header><main id="main"><section class="document-hero container"><span class="eyebrow">STARCLAW / DOCS</span><h1>A good place<br><span>to begin.</span></h1><p>From your first goal to your own policy. The essentials, the commands, and the source of truth.</p></section><div class="container document-layout"><aside class="document-sidebar"><span class="mono">ON THIS PAGE</span><a href="#models">Models & documentation<span>↗</span></a><a href="#commands">Command reference<span>↗</span></a><a href="#demo">Offline demo<span>↗</span></a><div class="sidebar-note"><i class="status-dot"></i> Developer alpha<br><span>Read the limits.<br>Build with intention.</span></div></aside><article class="document-content">
 
-    <h1>Docs</h1>
+
     <p>The documentation lives in the repository. This site does not copy it, so there is one source of truth.</p>
-    <h2>Read these</h2>
+    <h2 id="models">The source of truth</h2><p>Use Groq, Anthropic, or an OpenAI-compatible endpoint, including local model servers such as Ollama. Configure the provider and credentials following the repository README.</p>
     <ul>
       <li><a href="https://github.com/mnemopay/starclaw/blob/main/README.md">README</a>: install, quick start, how it works, Slack and Discord setup, known limits.</li>
       <li><a href="https://github.com/mnemopay/starclaw/blob/main/SECURITY.md">SECURITY.md</a>: the full security model, with the limits of each control.</li>
@@ -46,7 +11,7 @@
       <li><a href="https://github.com/mnemopay/starclaw/blob/main/LICENSE">LICENSE</a> (Apache-2.0) and <a href="https://github.com/mnemopay/starclaw/blob/main/NOTICE">NOTICE</a>.</li>
     </ul>
 
-    <h2>Commands</h2>
+    <h2 id="commands">Command reference</h2>
     <p>This list is taken from <code>src/cli.ts</code> and the <code>bin</code> entries in <code>package.json</code> at version <code>2.0.0-alpha.7</code> (published on npm under <code>next</code>). Run <code>starclaw --help</code> for the authoritative list on your install.</p>
     <p>Most commands also accept <code>--policy</code>, <code>--state-dir</code>, <code>--workspace</code>, <code>--sandbox auto|container|process</code> and <code>--require-container</code>.</p>
     <div class="table-wrap">
@@ -80,13 +45,9 @@
     <pre><code>npm run build &amp;&amp; npm test &amp;&amp; npm run typecheck</code></pre>
     <p>The tests use a fake model and a fake payment rail. Nothing in the suite calls a real provider.</p>
 
-  </div>
-</main>
-<footer class="site">
-  <div class="wrap">
-    <p>StarClaw is alpha software under the <a href="https://github.com/mnemopay/starclaw/blob/main/LICENSE">Apache-2.0 license</a>. Source: <a href="https://github.com/mnemopay/starclaw">github.com/mnemopay/starclaw</a>.</p>
-    <p>Copyright (c) 2026 Jeremiah Omiagbo / J&amp;B Enterprise LLC. This site has no scripts, no cookies, no forms and no tracking.</p>
-  </div>
-</footer>
-</body>
-</html>
+  <section id="demo"><h2>Watch the boundaries hold</h2><p>The offline injection demo uses a scripted model and a fake payment rail. The sandbox, policy checks, approvals and audit verification are real.</p><pre><code>git clone https://github.com/mnemopay/starclaw
+cd starclaw
+npm install
+npm run build
+node dist/cli.js sandbox build
+npm run demo</code></pre><p>Docker is recommended. Without it, the demo uses the weaker process permission layer. The demo does not prove that real models cannot be steered.</p></section></article></div></main><footer class="site-footer"><div class="container"><div class="footer-top"><a class="brand" href="../index.html"><svg viewBox="0 0 40 40" aria-hidden="true" class="brand-mark"><path d="M20 2.5 24.5 12.2 35.2 9.5 30.2 19.2 37 27.9 26.2 28.4 20 37.5 15.5 27.8 4.8 30.5 9.8 20.8 3 12.1 13.8 11.6Z" fill="currentColor"/><path d="m20 12 2.5 5.5 5.5 2.5-5.5 2.5L20 28l-2.5-5.5L12 20l5.5-2.5Z" fill="var(--ink,#090d0b)"/></svg><span>starclaw<span class="brand-period">.</span></span></a><p>A little more autonomous.<br>A lot more possible.</p><div class="footer-links"><a href="https://github.com/mnemopay/starclaw">GitHub ↗</a><a href="../docs/index.html">Documentation</a><a href="../security/index.html">Security model</a><a href="mailto:hello@starclaw.dev">Say hello ↗</a></div></div><div class="footer-bottom"><span>© 2026 J&amp;B Enterprise LLC · Apache-2.0</span><span><i class="status-dot"></i> Built in the open. Still in alpha.</span><a href="mailto:security@starclaw.dev">Report a vulnerability ↗</a></div></div></footer></body></html>
