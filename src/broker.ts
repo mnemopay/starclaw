@@ -9,7 +9,7 @@ import { Governor } from './governance/governor';
 import { SubagentScope } from './governance/subagent';
 import { canonicalize } from './governance/canonical';
 import { ControlClient, ControlError, defaultDiscoveryPath, readDiscovery } from './browser/control';
-import { checkBrowserUrl, hostAllowed } from './browser/guard';
+import { checkBrowserUrl, checkSelector, checkTypeText, hostAllowed } from './browser/guard';
 import { TaintedFileStore } from './governance/taint';
 import { Action } from './governance/types';
 import { safeGet, parseHttpUrl } from './net/safeFetch';
@@ -90,6 +90,9 @@ const BrowseOpenArgs = z.object({ url: z.string().min(1).max(4000) }).strict();
 const BrowseNavArgs = z.object({ url: z.string().min(1).max(4000) }).strict();
 const BrowseTextArgs = z.object({ maxBytes: z.number().int().min(1).max(262_144).optional() }).strict();
 const BrowseLinksArgs = z.object({ maxLinks: z.number().int().min(1).max(500).optional() }).strict();
+// Coarse UTF-16 caps only (never below the code-point limits); checkSelector/checkTypeText apply the browser's exact rules.
+const BrowseClickArgs = z.object({ selector: z.string().max(1024) }).strict();
+const BrowseTypeArgs = z.object({ selector: z.string().max(1024), text: z.string().max(8192), submit: z.boolean().optional() }).strict();
 const NoArgs = z.object({}).strict();
 const SpendArgs = z.object({ cents: z.number(), payee: z.string().min(1).max(200), memo: z.string().max(500).default('') }).strict();
 
@@ -201,6 +204,10 @@ export class Broker {
         return this.browseRead('text', BrowseTextArgs.parse(call.args));
       case 'browseReadLinks':
         return this.browseRead('links', BrowseLinksArgs.parse(call.args));
+      case 'browseClick':
+        return this.browseClick(BrowseClickArgs.parse(call.args));
+      case 'browseType':
+        return this.browseType(BrowseTypeArgs.parse(call.args));
       case 'browseClose':
         NoArgs.parse(call.args ?? {});
         return this.browseClose();
@@ -638,7 +645,7 @@ export class Broker {
   // ---- governed browser (MnemoPay Native Browser control API) ---------------------------------------------------
 
   /** The one open tab (host-side state; generated code never sees the tab id, the token or the discovery file). */
-  private tab?: { id: string; used: number; expiresAt: number };
+  private tab?: { id: string; used: number; expiresAt: number; /** last page host the browser reported (allow-listed) */ host: string };
 
   private browserRefuse(tool: string, reason: string, extra: Record<string, unknown> = {}): never {
     this.gov.audit.append('browser.refused', { tool, reason, ...extra });
@@ -696,17 +703,22 @@ export class Broker {
     }
   }
 
-  /** Withhold content when the tab ended on a host outside the allow-list (the browser does this too; we do not rely on it). */
-  private assertFinalHost(data: any, allowed: readonly string[]) {
+  /**
+   * Withhold content when the tab ended on a host outside the allow-list (the browser does this too; we do not rely on it).
+   * Returns the (allowed) host when the browser reported one. `revealHost: false` keeps the host out of the message (browseType:
+   * a page could navigate to a host name built from the typed text, and the message is audited).
+   */
+  private assertFinalHost(data: any, allowed: readonly string[], revealHost = true): string | undefined {
     const u = data && typeof data === 'object' ? (data.url ?? data.final_url) : undefined;
-    if (typeof u !== 'string') return;
+    if (typeof u !== 'string') return undefined;
     let host: string;
     try {
       host = new URL(u).hostname;
     } catch {
       throw new Error('the browser reported an unparseable page URL; content withheld');
     }
-    if (!hostAllowed(host, allowed)) throw new Error(`the tab ended on ${host}, which is not in browser.allowedDomains; content withheld`);
+    if (!hostAllowed(host, allowed)) throw new Error(`the tab ended on ${revealHost ? host + ', which is' : 'a host'} not in browser.allowedDomains; content withheld`);
+    return host;
   }
 
   private async browseOpen(a: { url: string }) {
@@ -727,6 +739,8 @@ export class Broker {
       allowed_domains: [...b.allowedDomains],
       ttl_seconds: b.ttlSeconds,
       ...(b.actionCostCents !== undefined ? { action_cost_cents: b.actionCostCents } : {}),
+      // Only sent when typing is wanted: the browser defaults to false, and an older build without click/type rejects the field.
+      ...(b.allowInput ? { allow_input: true } : {}),
     };
     const clientRef = 'starclaw-' + randomBytes(6).toString('hex');
     const action: Action = {
@@ -742,8 +756,8 @@ export class Broker {
         const client = this.browserClient('browseOpen');
         const res = await this.browserCall(u.toString(), () => client.openTab(u.toString(), envelope, clientRef));
         if (typeof res.tab_id !== 'string') throw new Error('the browser did not return a tab id');
-        this.tab = { id: res.tab_id, used: 1, expiresAt: Date.now() + b.ttlSeconds * 1000 };
-        this.assertFinalHost(res.data, b.allowedDomains);
+        this.tab = { id: res.tab_id, used: 1, expiresAt: Date.now() + b.ttlSeconds * 1000, host: u.hostname };
+        this.tab.host = this.assertFinalHost(res.data, b.allowedDomains) ?? this.tab.host;
         return { res, clientRef };
       },
       (r) => ({ tool: 'browseOpen', host: u.hostname, requestId: r.res.request_id, clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), untrusted: true }),
@@ -774,7 +788,7 @@ export class Broker {
         const client = this.browserClient('browseNavigate');
         t.used++;
         const res = await this.browserCall(u.toString(), () => client.navigate(t.id, u.toString(), clientRef));
-        this.assertFinalHost(res.data, b.allowedDomains);
+        t.host = this.assertFinalHost(res.data, b.allowedDomains) ?? u.hostname;
         return { res, clientRef };
       },
       (r) => ({ tool: 'browseNavigate', host: u.hostname, requestId: r.res.request_id, clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), untrusted: true }),
@@ -801,12 +815,93 @@ export class Broker {
         const client = this.browserClient(tool);
         t.used++;
         const res = await this.browserCall(kind, () => (kind === 'text' ? client.readText(t.id, maxBytes, clientRef) : client.readLinks(t.id, maxLinks, clientRef)));
-        this.assertFinalHost(res.data, b.allowedDomains);
+        t.host = this.assertFinalHost(res.data, b.allowedDomains) ?? t.host;
         return { res, clientRef };
       },
       (r) => ({ tool, requestId: r.res.request_id, clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), bytes: JSON.stringify(r.res.data ?? null).length, untrusted: true }),
     );
     return { untrusted: true as const, actionsLeft: b.maxActions - t.used, data: out.res.data };
+  }
+
+  /** Click the first element matching a CSS selector. A click can start a same-site navigation: the final host is checked. */
+  private async browseClick(a: { selector: string }) {
+    // The browser's own argument limits, checked before anything else (no policy lookup, no request, no prompt).
+    try {
+      checkSelector(a.selector);
+    } catch (e: any) {
+      return this.browserRefuse('browseClick', e.message);
+    }
+    const b = this.browserCfg('browseClick');
+    const t = this.liveTab('browseClick');
+    this.browserClient('browseClick'); // fail closed before asking a human
+    const clientRef = 'starclaw-' + randomBytes(6).toString('hex');
+    const action: Action = {
+      class: 'browser.click',
+      target: t.host,
+      host: t.host,
+      summary: `Click the first element matching ${JSON.stringify(a.selector)} in the governed browser tab (page host ${t.host}; may run page scripts or follow a same-site link)`.slice(0, 400),
+      detail: JSON.stringify({ selector: a.selector, host: t.host, clientRef }, null, 2),
+    };
+    const out = await this.gov.governed(
+      action,
+      async () => {
+        const client = this.browserClient('browseClick');
+        t.used++;
+        const res = await this.browserCall('click', () => client.click(t.id, a.selector, clientRef));
+        t.host = this.assertFinalHost(res.data, b.allowedDomains) ?? t.host;
+        return { res, clientRef };
+      },
+      (r) => ({ tool: 'browseClick', selector: a.selector, host: t.host, requestId: r.res.request_id, clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), untrusted: true }),
+    );
+    return { untrusted: true as const, actionsLeft: b.maxActions - t.used, data: out.res.data };
+  }
+
+  /**
+   * Type text into an element (replaces its value; optionally submits its form). Typing hands data to a website, so:
+   * refused unless browser.allowInput; class `browser.type` (default ask, never auto-allowed when tainted or unattended);
+   * the approver sees the exact text; the audit log and every error get only selector + length + SHA-256, never the text.
+   */
+  private async browseType(a: { selector: string; text: string; submit?: boolean }) {
+    try {
+      checkSelector(a.selector);
+      checkTypeText(a.text);
+    } catch (e: any) {
+      return this.browserRefuse('browseType', e.message);
+    }
+    const b = this.browserCfg('browseType');
+    if (!b.allowInput) return this.browserRefuse('browseType', 'typing is disabled (policy browser.allowInput = false)');
+    const t = this.liveTab('browseType');
+    this.browserClient('browseType'); // fail closed before asking a human
+    const submit = a.submit === true;
+    const chars = [...a.text].length;
+    const textSha256 = createHash('sha256').update(a.text, 'utf8').digest('hex');
+    const clientRef = 'starclaw-' + randomBytes(6).toString('hex');
+    const action: Action = {
+      class: 'browser.type',
+      target: t.host,
+      host: t.host,
+      // Most important facts first: the summary is cut at 400 chars and a selector can be 512.
+      summary: `TYPE ${chars} chars${submit ? ' and SUBMIT the form' : ''} into a page on ${t.host} (hands the text to that website; text sha256 ${textSha256.slice(0, 16)}), element ${JSON.stringify(a.selector)}`.slice(0, 400),
+      detail: JSON.stringify({ selector: a.selector, host: t.host, textChars: chars, textSha256, submit, clientRef }, null, 2),
+      approverOnly: { label: 'EXACT TEXT TO BE TYPED', text: a.text },
+    };
+    const out = await this.gov.governed(
+      action,
+      async () => {
+        const client = this.browserClient('browseType');
+        t.used++;
+        let res: Awaited<ReturnType<ControlClient['type']>>;
+        try {
+          res = await this.browserCall('type', () => client.type(t.id, a.selector, a.text, submit, clientRef));
+        } catch (e) {
+          throw typeFailure(e);
+        }
+        t.host = this.assertFinalHost(res.data, b.allowedDomains, false) ?? t.host;
+        return { res, clientRef };
+      },
+      (r) => ({ tool: 'browseType', selector: a.selector, host: t.host, textChars: chars, textSha256, submit, requestId: safeRequestId(r.res.request_id, a.text), clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), untrusted: true }),
+    );
+    return { untrusted: true as const, actionsLeft: b.maxActions - t.used, typedChars: chars, textSha256, data: out.res.data };
   }
 
   private async browseClose() {
@@ -830,6 +925,40 @@ export class Broker {
       this.tab = undefined;
     }
   }
+}
+
+/**
+ * A browseType failure, rebuilt from fixed text: the server's own message is NOT passed on, because a hostile or buggy
+ * server could echo the typed text and the message is written to the audit log. Only a well-formed code and the status survive.
+ */
+const TYPE_FAILURES: Record<string, string> = {
+  forbidden: 'the browser refused typing in this tab (it must be opened with envelope allow_input = true)',
+  element_unavailable: 'the element is unavailable (no match, hidden, disabled, not a text field, a password field, no form to submit, or refused by the page)',
+  bad_request: 'the browser rejected the request as malformed',
+  unreachable: 'browser control api unreachable',
+  redirect: 'browser control api answered with a redirect; refusing to follow',
+  bad_response: 'browser control api returned an unusable response',
+};
+/** protocol.rs ErrorCode (snake_case) plus this client's own codes. Anything else (it could be echoed text) becomes `error`. */
+const KNOWN_CONTROL_CODES = new Set([
+  'unauthorized', 'forbidden', 'bad_request', 'not_found', 'method_not_allowed', 'payload_too_large', 'unsupported_media_type', 'rate_limited', 'busy',
+  'unknown_tab', 'tab_limit', 'egress_unavailable', 'invalid_url', 'domain_not_allowed', 'budget_exhausted', 'action_cap_reached', 'envelope_expired',
+  'audit_unavailable', 'driver_error', 'driver_timeout', 'unsupported', 'element_unavailable', 'internal',
+  'unreachable', 'redirect', 'bad_response', 'client_error',
+]);
+function typeFailure(e: unknown): Error {
+  if (e instanceof ControlError) {
+    const code = KNOWN_CONTROL_CODES.has(e.code) ? e.code : 'error';
+    const what = TYPE_FAILURES[code] ?? 'the browser refused the request';
+    return new ControlError(`browser type failed: ${what} (code ${code}${e.status ? `, HTTP ${e.status}` : ''})`, { code, status: e.status, retryable: e.info.retryable, answered: e.info.answered });
+  }
+  return new Error('browser type failed: unexpected client error');
+}
+
+/** Request ids are written to the audit log: keep only short, plain ones that do not contain the typed text. */
+function safeRequestId(id: unknown, typed: string): string | undefined {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9._:-]{1,80}$/.test(id)) return undefined;
+  return typed !== '' && id.includes(typed) ? undefined : id;
 }
 
 function safeHost(raw: string): string | undefined {

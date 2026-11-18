@@ -28,6 +28,8 @@ export const TOOL_CLASSES: Readonly<Record<string, readonly ActionClass[]>> = {
   browseReadText: ['browser.read'],
   browseReadLinks: ['browser.read'],
   browseClose: ['browser.read'],
+  browseClick: ['browser.click'],
+  browseType: ['browser.type'],
   spawnAgent: ['agent.spawn'],
   runCommand: ['host.exec'],
   scheduleCreate: ['schedule.create'],
@@ -41,7 +43,7 @@ export const TOOL_CLASSES: Readonly<Record<string, readonly ActionClass[]>> = {
 export interface SubagentScope {
   /** Tool names the run may call. */
   tools: readonly string[];
-  /** Host patterns (exact, or `*.sub.example.com` for subdomains only) for net.egress / browser.open / browser.navigate; 'any' = no scope restriction. */
+  /** Host patterns (exact, or `*.sub.example.com` for subdomains only) for net.egress / browser.open / browser.navigate / browser.click / browser.type (the page host); 'any' = no scope restriction. */
   domains: readonly string[] | 'any';
   /** Workspace-relative directory prefixes ('' = the whole workspace), normalised POSIX, for reads and for writes. */
   readPaths: readonly string[];
@@ -242,7 +244,7 @@ export function scopeClasses(scope: SubagentScope): Set<ActionClass> {
 /** Governor-side check (the broker enforces tool names and file paths itself). Pure; returns why not, or undefined when the scope permits. */
 export function scopeDenies(scope: SubagentScope, action: Action, classes = scopeClasses(scope)): string | undefined {
   if (!classes.has(action.class)) return `${action.class} is outside this sub-agent's capabilities (tools: ${scope.tools.join(', ') || 'none'})`;
-  if (scope.domains !== 'any' && (action.class === 'net.egress' || action.class === 'browser.open' || action.class === 'browser.navigate')) {
+  if (scope.domains !== 'any' && (action.class === 'net.egress' || action.class === 'browser.open' || action.class === 'browser.navigate' || action.class === 'browser.click' || action.class === 'browser.type')) {
     if (!action.host || !hostAllowed(action.host, scope.domains)) return `host ${action.host ?? '(none)'} is outside this sub-agent's domains (${scope.domains.join(', ') || 'none'})`;
   }
   return undefined;

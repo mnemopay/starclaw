@@ -107,6 +107,11 @@ export const BrowserPolicySchema = z
     maxReadBytes: z.number().int().min(1024).max(262_144).default(65_536),
     maxLinks: z.number().int().min(1).max(500).default(100),
     timeoutSeconds: z.number().int().min(1).max(120).default(70),
+    /**
+     * Off by default. When false the tab is opened without `allow_input` (the browser then refuses typing too) and
+     * tools.browseType is refused before any request or approval prompt. Typing hands data to a website.
+     */
+    allowInput: z.boolean().default(false),
   })
   .strict()
   .refine((b) => !b.enabled || b.allowedDomains.length > 0, { message: 'browser.allowedDomains must be non-empty when browser.enabled is true', path: ['allowedDomains'] });
@@ -219,6 +224,10 @@ export const PolicySchema = z
         'browser.open': VerdictSchema.default('ask'),
         'browser.navigate': VerdictSchema.default('allow'),
         'browser.read': VerdictSchema.default('allow'),
+        /** Like navigate: allowed in a clean session, escalated to a human once the session is tainted (opening a page taints it). */
+        'browser.click': VerdictSchema.default('allow'),
+        /** Typing (needs browser.allowInput too). Whatever this says, it is never auto-allowed in a tainted session or an unattended run. */
+        'browser.type': VerdictSchema.default('ask'),
         /** Starting a sub-agent. Needs subagents.enabled too. Whatever this says, an unattended run never auto-allows it, and a tainted session must ask. */
         'agent.spawn': VerdictSchema.default('ask'),
         /** Whatever this says, installing a registry skill always needs a human (see ALWAYS_ASK). */
@@ -228,7 +237,7 @@ export const PolicySchema = z
       .default({
         exec: 'ask', 'fs.read': 'ask', 'fs.write': 'ask', 'net.egress': 'ask', spend: 'ask', 'skill.save': 'ask', 'memory.write': 'ask',
         'shell.exec': 'ask', 'host.exec': 'ask', 'schedule.create': 'ask', 'notify.owner': 'allow',
-        'browser.open': 'ask', 'browser.navigate': 'allow', 'browser.read': 'allow', 'agent.spawn': 'ask', 'skill.install': 'ask',
+        'browser.open': 'ask', 'browser.navigate': 'allow', 'browser.read': 'allow', 'browser.click': 'allow', 'browser.type': 'ask', 'agent.spawn': 'ask', 'skill.install': 'ask',
       }),
     rules: z.array(RuleSchema).max(500).default([{ class: 'fs.read', inWorkspace: true, verdict: 'allow' }]),
     spend: z

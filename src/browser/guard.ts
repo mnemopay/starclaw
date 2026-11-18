@@ -32,3 +32,27 @@ export function checkBrowserUrl(raw: string, allowed: readonly string[]): URL {
   if (!hostAllowed(host, allowed)) throw new Error(`host ${host} is not in browser.allowedDomains`);
   return u;
 }
+
+/** The control API's limits (protocol.rs MAX_SELECTOR_CHARS / MAX_TYPE_CHARS), counted in Unicode code points like Rust's chars(). */
+export const MAX_SELECTOR_CHARS = 512;
+export const MAX_TYPE_CHARS = 4096;
+/** Rust's char::is_control = Unicode category Cc: U+0000-U+001F and U+007F-U+009F. */
+const CONTROL_RE = /[\u0000-\u001F\u007F-\u009F]/;
+const CONTROL_EXCEPT_NL_TAB_RE = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/;
+/** A lone UTF-16 surrogate cannot be sent as valid JSON text to the browser's strict parser. */
+const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const isWellFormed = (s: string) => !LONE_SURROGATE_RE.test(s);
+
+/** Same rules as the browser's validate_selector, checked before anything else. Messages never quote the selector. */
+export function checkSelector(s: string): void {
+  if (!isWellFormed(s)) throw new Error('selector is not valid Unicode (lone surrogate)');
+  if (s.trim() === '' || [...s].length > MAX_SELECTOR_CHARS) throw new Error(`selector must be 1..${MAX_SELECTOR_CHARS} characters and not blank`);
+  if (CONTROL_RE.test(s)) throw new Error('selector must not contain control characters');
+}
+
+/** Same rules as the browser's validate_type_text. Messages never quote the text. */
+export function checkTypeText(t: string): void {
+  if (!isWellFormed(t)) throw new Error('text is not valid Unicode (lone surrogate)');
+  if ([...t].length > MAX_TYPE_CHARS) throw new Error(`text must be at most ${MAX_TYPE_CHARS} characters`);
+  if (CONTROL_EXCEPT_NL_TAB_RE.test(t)) throw new Error('text must not contain control characters other than newline and tab');
+}
