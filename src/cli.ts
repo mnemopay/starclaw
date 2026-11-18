@@ -257,6 +257,10 @@ program
       const ss = subagentsStatus(policy);
       console.log(ss.line);
       for (const w of ss.warnings) console.log('  WARNING: ' + w);
+      const mcp = policy.mcp;
+      console.log(`MCP: ${!mcp.enabled ? 'disabled' : mcp.servers.length ? `${mcp.servers.length} server(s): ${mcp.servers.map((s) => `${s.name} (${s.transport}${s.tools ? `, ${s.tools.length} allow-listed tools` : ', all tools'})`).join(', ')}; calls: ${policy.defaults['mcp.call']} by default` : 'enabled but no servers declared'}`);
+      if (mcp.enabled && mcp.servers.some((s) => s.transport === 'stdio')) console.log('  NOTE: stdio MCP servers are programs on this PC and run OUTSIDE the sandbox; declare only ones you trust.');
+      if (mcp.enabled && policy.defaults['mcp.call'] === 'allow') console.log('  WARNING: defaults["mcp.call"] is allow: any declared tool may run without asking in a clean session (tainted sessions still ask).');
       const layers: Array<['container' | 'process', Sandbox]> = [['container', sb.container], ['process', sb.proc]];
       for (const [name, layer] of layers) {
         try {

@@ -10,8 +10,10 @@ import { SubagentScope } from './governance/subagent';
 import { canonicalize } from './governance/canonical';
 import { ControlClient, ControlError, defaultDiscoveryPath, readDiscovery } from './browser/control';
 import { checkBrowserUrl, checkSelector, checkTypeText, hostAllowed } from './browser/guard';
+import { MCP_TOOL_RE } from './governance/policy';
 import { TaintedFileStore } from './governance/taint';
 import { Action } from './governance/types';
+import type { McpManager } from './mcp/manager';
 import { safeGet, parseHttpUrl } from './net/safeFetch';
 import { extractReadable, looksBinary, looksLikeHtml } from './net/readable';
 import { createSearchProvider, SearchProvider } from './search/providers';
@@ -73,6 +75,8 @@ export interface BrokerOptions {
   scope?: SubagentScope;
   /** tools.spawnAgent: absent = the tool is not available. Receives the UNVALIDATED arguments; the host validates and attenuates. */
   spawn?: (args: unknown) => Promise<unknown>;
+  /** tools.mcpList / tools.mcpCall: connections to the owner-declared MCP servers (shared by all runs). */
+  mcp?: McpManager;
 }
 
 const PathArgs = z.object({ path: z.string().min(1).max(1000) }).strict();
@@ -95,6 +99,9 @@ const BrowseClickArgs = z.object({ selector: z.string().max(1024) }).strict();
 const BrowseTypeArgs = z.object({ selector: z.string().max(1024), text: z.string().max(8192), submit: z.boolean().optional() }).strict();
 const NoArgs = z.object({}).strict();
 const SpendArgs = z.object({ cents: z.number(), payee: z.string().min(1).max(200), memo: z.string().max(500).default('') }).strict();
+const McpListArgs = z.object({ server: z.string().max(40).optional() }).strict();
+const McpCallArgs = z.object({ server: z.string().min(1).max(40), tool: z.string().min(1).max(64), args: z.record(z.string(), z.unknown()).default({}) }).strict();
+const MAX_MCP_ARGS_CHARS = 100_000;
 
 /**
  * Executes the capabilities that sandboxed code asks for. Every call is turned into an Action and passed through
@@ -211,6 +218,10 @@ export class Broker {
       case 'browseClose':
         NoArgs.parse(call.args ?? {});
         return this.browseClose();
+      case 'mcpList':
+        return this.mcpList(McpListArgs.parse(call.args ?? {}));
+      case 'mcpCall':
+        return this.mcpCall(McpCallArgs.parse(call.args));
       default:
         throw new Error(`unknown tool ${call.name}`);
     }
@@ -902,6 +913,86 @@ export class Broker {
       (r) => ({ tool: 'browseType', selector: a.selector, host: t.host, textChars: chars, textSha256, submit, requestId: safeRequestId(r.res.request_id, a.text), clientRef: r.clientRef, receiptSha256: this.receiptDigest(r.res.receipt), untrusted: true }),
     );
     return { untrusted: true as const, actionsLeft: b.maxActions - t.used, typedChars: chars, textSha256, data: out.res.data };
+  }
+
+  // ---- governed MCP (owner-declared servers only) -----------------------------------------------------------------
+
+  private mcpRefuse(tool: string, reason: string, extra: Record<string, unknown> = {}): never {
+    this.gov.audit.append('mcp.refused', { tool, reason, ...extra });
+    throw new Error(`MCP tool refused: ${reason}`);
+  }
+
+  private mcpManager(tool: string): McpManager {
+    if (!this.gov.policy.mcp.enabled) this.mcpRefuse(tool, 'MCP is disabled (policy mcp.enabled = false)');
+    if (!this.o.mcp || this.gov.policy.mcp.servers.length === 0) this.mcpRefuse(tool, 'no MCP servers are declared in the policy (mcp.servers)');
+    return this.o.mcp!;
+  }
+
+  /**
+   * List the tools of one or all declared servers. Starting a declared server is the owner's choice (it is in the
+   * policy); what the server says about its tools is NOT trusted (tool descriptions are a known injection channel), so
+   * the session is tainted as soon as any server answers.
+   */
+  private async mcpList(a: { server?: string }) {
+    const m = this.mcpManager('mcpList');
+    const names = a.server ? [a.server] : m.serverNames;
+    if (a.server && !m.config(a.server)) this.mcpRefuse('mcpList', `no MCP server named ${JSON.stringify(a.server.slice(0, 40))} in the policy`);
+    const servers: Array<{ server: string; tools?: Array<{ name: string; description: string; inputSchema: unknown }>; error?: string }> = [];
+    let answered = false;
+    for (const name of names) {
+      try {
+        const tools = await m.listTools(name);
+        answered = true;
+        servers.push({ server: name, tools });
+        this.gov.audit.append('mcp.listed', { server: name, tools: tools.length });
+      } catch (e: any) {
+        servers.push({ server: name, error: String(e?.message ?? e).slice(0, 300) });
+        this.gov.audit.append('mcp.unavailable', { server: name, reason: String(e?.message ?? e).slice(0, 200) });
+      }
+    }
+    if (answered) this.gov.taint.mark('tool-output', `mcp:list:${names.join(',')}`.slice(0, 200));
+    return { untrusted: true as const, servers };
+  }
+
+  /** Call one tool: refused before anyone is asked unless the server is declared and the tool is listed (and allow-listed). */
+  private async mcpCall(a: { server: string; tool: string; args: Record<string, unknown> }) {
+    const m = this.mcpManager('mcpCall');
+    const cfg = m.config(a.server);
+    if (!cfg) return this.mcpRefuse('mcpCall', `no MCP server named ${JSON.stringify(a.server.slice(0, 40))} in the policy`);
+    if (!MCP_TOOL_RE.test(a.tool)) return this.mcpRefuse('mcpCall', 'invalid tool name', { server: a.server });
+    if (cfg.tools && !cfg.tools.includes(a.tool)) return this.mcpRefuse('mcpCall', `tool ${a.tool} is not in mcp.servers[${a.server}].tools`, { server: a.server });
+    const argsJson = JSON.stringify(a.args);
+    if (argsJson.length > MAX_MCP_ARGS_CHARS) return this.mcpRefuse('mcpCall', `arguments exceed ${MAX_MCP_ARGS_CHARS} characters`, { server: a.server, tool: a.tool });
+    let listed: Awaited<ReturnType<McpManager['listTools']>>;
+    try {
+      listed = await m.listTools(a.server);
+    } catch (e: any) {
+      return this.mcpRefuse('mcpCall', `server ${a.server} is unavailable: ${String(e?.message ?? e).slice(0, 200)}`, { server: a.server });
+    }
+    // This internal listing only checks that the tool exists; its descriptions never reach the model, so it does not taint.
+    if (!listed.some((t) => t.name === a.tool)) return this.mcpRefuse('mcpCall', `server ${a.server} has no tool ${a.tool}`, { server: a.server });
+    const where = cfg.transport === 'stdio' ? `program ${cfg.command} on this PC` : `${new URL(cfg.url!).host}`;
+    const action: Action = {
+      class: 'mcp.call',
+      target: `${a.server}/${a.tool}`,
+      summary: `Call MCP tool ${a.tool} on server ${a.server} (${where})`.slice(0, 300),
+      detail: JSON.stringify({ server: a.server, tool: a.tool, arguments: a.args }, null, 2),
+    };
+    let attempted = false;
+    try {
+      const r = await this.gov.governed(
+        action,
+        () => {
+          attempted = true;
+          return m.callTool(a.server, a.tool, a.args);
+        },
+        (r) => ({ server: a.server, tool: a.tool, isError: r.isError, textChars: r.text.length, nonText: r.nonText, truncated: r.truncated }),
+      );
+      return { untrusted: true as const, ...r };
+    } finally {
+      // Whatever the server sent back (a result or an error) is untrusted.
+      if (attempted) this.gov.taint.mark('tool-output', `mcp:${a.server}/${a.tool}`);
+    }
   }
 
   private async browseClose() {
