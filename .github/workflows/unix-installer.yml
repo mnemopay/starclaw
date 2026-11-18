@@ -1,0 +1,65 @@
+name: unix-installer
+
+# Proves site/install.sh on clean Ubuntu and macOS runners: no Node preinstalled on PATH, so the script must download the
+# official Node 25.9.0 and check its checksum; it installs the package built from this commit; the app then starts in
+# guided-setup mode and its key-protected API answers.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: ["site/install.sh", ".github/workflows/unix-installer.yml", "src/app.ts", "src/cli.ts", "src/setup*.ts", "package.json"]
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25.9.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack this commit
+        id: pack
+        run: echo "tgz=$PWD/$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
+      - name: Install with no Node on PATH (forces the verified download)
+        env:
+          STARCLAW_PACKAGE: ${{ steps.pack.outputs.tgz }}
+        run: |
+          env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" STARCLAW_PACKAGE="$STARCLAW_PACKAGE" bash site/install.sh | tee install.log
+          grep -q "Node checksum OK" install.log
+          test -x "$HOME/.local/bin/starclaw-app"
+          test "$("$HOME/.starclaw-runtime/node/bin/node" --version)" = "v25.9.0"
+          "$HOME/.local/bin/starclaw" --version
+      - name: The app starts in guided setup and its API needs the key
+        run: |
+          export STARCLAW_HOME="$HOME/sc-home"
+          "$HOME/.local/bin/starclaw-app" --no-open > app.log 2>&1 &
+          for i in $(seq 1 60); do grep -q 'Ctrl+C' app.log && break; sleep 1; done
+          cat app.log | grep -v '#key='
+          port=$(grep -oE '127\.0\.0\.1:[0-9]+' app.log | head -1 | cut -d: -f2)
+          key=$(grep '^STARCLAW_API_KEY=' "$STARCLAW_HOME/.env" | cut -d= -f2)
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/setup/status")" = 401
+          curl -sf -H "Authorization: Bearer $key" "http://127.0.0.1:$port/api/setup/status" | grep -q '"presets"'
+          curl -sf "http://127.0.0.1:$port/" | grep -q 'StarClaw Setup'
+          echo "setup page and API OK on port $port"
+      - name: Reinstall keeps user data
+        env:
+          STARCLAW_PACKAGE: ${{ steps.pack.outputs.tgz }}
+        run: |
+          env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" STARCLAW_PACKAGE="$STARCLAW_PACKAGE" bash site/install.sh | grep -q "Node 25.9.0 already present"
+          test -f "$HOME/sc-home/.env"
+      - name: Refuses to run as root
+        if: runner.os == 'Linux'
+        run: |
+          out=$(sudo -E bash site/install.sh 2>&1 || true)
+          echo "$out" | grep -q "do not run this as root"
