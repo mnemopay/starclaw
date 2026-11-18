@@ -9,7 +9,7 @@ import { searchTranscripts, Transcript } from '../src/channels/transcript';
 import { AuditLog } from '../src/governance/audit';
 import { Governor } from '../src/governance/governor';
 import { Ed25519Signer } from '../src/governance/signer';
-import { TOOL_CLASSES } from '../src/governance/subagent';
+import { FORBIDDEN_FOR_SUBAGENTS, TOOL_CLASSES } from '../src/governance/subagent';
 import { TaintedFileStore, TaintTracker } from '../src/governance/taint';
 import { createGateway } from '../src/server';
 import { CapabilitiesSchema } from '../src/skills/registry/bundle';
@@ -66,8 +66,9 @@ describe('conversation search', () => {
 
   test('never available to registry skills or sub-agents', () => {
     assert.throws(() => CapabilitiesSchema.parse({ tools: ['searchConversations'] }));
-    // attenuate() rejects any tool missing from TOOL_CLASSES ("unknown tool"), so a sub-agent can never be granted it.
-    assert.equal('searchConversations' in TOOL_CLASSES, false);
+    // Explicitly forbidden: attenuate() refuses it ("can never be held by a sub-agent") whatever the parent asks.
+    assert.ok(FORBIDDEN_FOR_SUBAGENTS.includes('searchConversations'));
+    assert.deepEqual(TOOL_CLASSES.searchConversations, [], 'mapped (every tool is accounted for) to no outside action');
   });
 
   test('owner search endpoint needs the key and returns hits with context', async () => {
