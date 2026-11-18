@@ -214,7 +214,7 @@ export class DiscordGateway {
     if (typeof goal !== 'string' || !goal.trim()) return ephemeral('Give me a goal.');
     const text = goal.trim();
     if (isOwner && text === '/new') {
-      this.o.engine.newSession();
+      if (this.o.engine.newSession() === false) return ephemeral('A goal is active or queued. Wait for it to finish before starting a new session.');
       return ephemeral('New session started (taint cleared).');
     }
     if (text.length > 8000 || typeof i.token !== 'string' || !/^[A-Za-z0-9_-]{20,300}$/.test(i.token)) return ephemeral('Goal too long or malformed.');

@@ -18,7 +18,10 @@ export function createTelegramHandler(engine: StarClawEngine, api: TelegramApi, 
     const isOwner = m.from?.id === ownerId && m.chat.id === ownerId;
     if (!isOwner && !allowPublic) return; // silently ignored
     if (isOwner && m.text === '/new') {
-      engine.newSession();
+      if (engine.newSession() === false) {
+        await send(m.chat.id, 'A goal is active or queued. Wait for it to finish before starting a new session.');
+        return;
+      }
       await send(m.chat.id, 'New session started (taint cleared).');
       return;
     }

@@ -1,3 +1,4 @@
+import { actionIsLive } from './lifetime';
 import { randomUUID } from 'node:crypto';
 import type { AuditSink } from './audit';
 import { Policy, evaluatePolicy } from './policy';
@@ -97,6 +98,9 @@ export class Governor {
       escalatedByTaint: escalated,
       provenance,
     });
+
+    if (!actionIsLive()) return this.finish(action, decide(false, 'hard-rule', 'sandbox run has ended', false));
+    if (this.ctx?.origin !== 'scheduled' && !this.ctx?.subagent && this.ctx?.deadlineAt !== undefined && Date.now() >= this.ctx.deadlineAt) return this.finish(action, decide(false, 'hard-rule', 'run deadline expired', false));
 
     // 0. Hard validation that no policy can relax.
     if (action.class === 'spend') {
@@ -215,6 +219,9 @@ export class Governor {
     if (timedOut) return this.finish(action, decide(false, 'timeout', 'no answer before the approval timeout', escalated));
     if (answer !== 'approve') return this.finish(action, decide(false, 'human', 'denied by approver', escalated));
 
+    if (!actionIsLive()) return this.finish(action, decide(false, 'hard-rule', 'sandbox run ended while awaiting approval', escalated));
+    if (this.ctx?.deadlineAt !== undefined && Date.now() >= this.ctx.deadlineAt) return this.finish(action, decide(false, 'hard-rule', 'run deadline expired while awaiting approval', escalated));
+
     // 4. A human 'yes' can never exceed the spend authority's caps: re-check after approval.
     if (action.class === 'spend') {
       const post = this.spendCheck(action);
@@ -227,6 +234,8 @@ export class Governor {
   async governed<T>(action: Action, fn: () => Promise<T>, summarize: (r: T) => Record<string, unknown> = () => ({})): Promise<T> {
     const d = await this.authorize(action);
     if (!d.allowed) throw new GovernorDenied(d, action);
+    if (!actionIsLive()) throw new Error('sandbox run ended before action could start');
+    if (this.ctx?.deadlineAt !== undefined && Date.now() >= this.ctx.deadlineAt) throw new Error('run deadline expired while awaiting approval');
     try {
       const r = await fn();
       this.audit.append('action.result', { decisionId: d.id, class: action.class, target: action.target, ok: true, ...summarize(r) });
@@ -251,6 +260,7 @@ export class Governor {
     };
     const d = await this.authorize(action);
     if (!d.allowed) throw new GovernorDenied(d, action);
+    if (!actionIsLive()) throw new Error('sandbox run ended before payment could start');
     // Final synchronous re-check immediately before reserving (another spend may have landed while we awaited).
     const last = this.spendCheck(action);
     if (!last.ok) {

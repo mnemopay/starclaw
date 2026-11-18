@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 export interface LlmUsage {
   inputTokens: number;
@@ -25,13 +26,14 @@ export class BudgetExceeded extends Error {
 const MICRO = 1_000_000;
 
 /**
- * LLM cost accounting against per-run and per-day caps (integer cents; accounted in microcents).
- * The cap is checked BEFORE each call and the actual usage is added AFTER it, so one call can overshoot by at
- * most its own cost. The per-day total is persisted to a plain JSON file: it is a convenience limit, not a
- * tamper-proof one (anyone who can edit that file can reset it).
+ * Built-in backends reserve a conservative request estimate before dispatch, then reconcile usage.
+ * Reservations share an atomic, exclusively locked daily ledger. Failed/unknown requests retain
+ * their reservation. Limits depend on configured prices and provider token accounting; this is
+ * not a guarantee about a provider's invoice. Custom LLMs may use post-call record() accounting.
  */
 export class LlmBudget {
   private runMicro = 0;
+  private inMemoryDay = { date: '', micro: 0 };
   /** Microcents handed to still-open sub-agent slices: unavailable to this run until the slice is closed. */
   private carvedMicro = 0;
   constructor(
@@ -43,15 +45,67 @@ export class LlmBudget {
 
   private readDay(): { date: string; micro: number } {
     const date = this.today();
-    if (this.file && fs.existsSync(this.file)) {
-      try {
-        const j = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-        if (j.date === date && Number.isSafeInteger(j.micro) && j.micro >= 0) return { date, micro: j.micro };
-      } catch {
-        /* fall through */
-      }
+    if (!this.file) return this.inMemoryDay.date === date ? { ...this.inMemoryDay } : { date, micro: 0 };
+    if (!fs.existsSync(this.file)) return { date, micro: 0 };
+    try {
+      const j = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      if (typeof j.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(j.date) || j.date > date || !Number.isSafeInteger(j.micro) || j.micro < 0) throw new Error('invalid ledger');
+      return { date, micro: j.date === date ? j.micro : 0 };
+    } catch { throw new BudgetExceeded('day', 'LLM budget ledger is corrupt; refusing to reset spending to zero'); }
+  }
+
+  private changeDay(delta: number, enforce: boolean): void {
+    if (!this.file) {
+      const day = this.readDay();
+      const micro = day.micro + delta;
+      if (!Number.isSafeInteger(micro) || micro < 0) throw new Error('invalid LLM balance');
+      if (enforce && micro > this.perDayCents * MICRO) throw new BudgetExceeded('day', 'request exceeds remaining daily LLM budget');
+      this.inMemoryDay = { date: day.date, micro };
+      return;
     }
-    return { date, micro: 0 };
+    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    const lock = `${this.file}.lock`;
+    let fd: number;
+    try { fd = fs.openSync(lock, 'wx', 0o600); }
+    catch { throw new BudgetExceeded('day', 'LLM budget ledger is locked; retry after the other writer finishes'); }
+    const tmp = `${this.file}.${randomUUID()}.tmp`;
+    try {
+      const day = this.readDay();
+      const micro = day.micro + delta;
+      if (!Number.isSafeInteger(micro) || micro < 0) throw new Error('invalid LLM ledger balance');
+      if (enforce && micro > this.perDayCents * MICRO) throw new BudgetExceeded('day', 'request exceeds remaining daily LLM budget');
+      fs.writeFileSync(tmp, JSON.stringify({ date: day.date, micro }), { flag: 'wx', mode: 0o600 });
+      fs.renameSync(tmp, this.file);
+    } finally {
+      fs.closeSync(fd);
+      fs.unlinkSync(lock);
+      if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    }
+  }
+
+  get availableMicro(): number {
+    return Math.max(0, Math.min(this.perRunCents * MICRO - this.runMicro - this.carvedMicro, this.perDayCents * MICRO - this.readDay().micro));
+  }
+
+  /** Reserve BEFORE sending a request. An error/unknown outcome keeps the full reservation charged. */
+  reserve(micro: number): { settle: (actual: number) => void } {
+    if (!Number.isSafeInteger(micro) || micro < 0) throw new Error('invalid LLM reservation');
+    if (micro > this.perRunCents * MICRO - this.runMicro - this.carvedMicro) throw new BudgetExceeded('run', 'request exceeds remaining per-run LLM budget');
+    this.changeDay(micro, true);
+    this.runMicro += micro;
+    const date = this.today();
+    let settled = false;
+    return { settle: (actual) => {
+      if (settled) throw new Error('LLM reservation already settled');
+      if (!Number.isSafeInteger(actual) || actual < 0) throw new Error('invalid LLM cost');
+      // A provider can report more than its configured token/price estimate: record the debt and stop.
+      const delta = actual - micro;
+      if (this.today() === date) this.changeDay(delta, false);
+      else if (delta > 0) this.changeDay(delta, false); // never refund yesterday's reservation from today's balance
+      this.runMicro += delta;
+      settled = true;
+      if (delta > 0) throw new BudgetExceeded('run', 'provider usage exceeded the reserved estimate; usage recorded, run stopped');
+    }};
   }
 
   assertCanSpend(): void {
@@ -61,12 +115,8 @@ export class LlmBudget {
 
   record(microcents: number): void {
     if (!Number.isSafeInteger(microcents) || microcents < 0) throw new Error('invalid LLM cost');
+    this.changeDay(microcents, false);
     this.runMicro += microcents;
-    if (this.file) {
-      const d = this.readDay();
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      fs.writeFileSync(this.file, JSON.stringify({ date: d.date, micro: d.micro + microcents }));
-    }
   }
 
   /** Whole cents that can still be carved into a sub-agent's budget right now. */

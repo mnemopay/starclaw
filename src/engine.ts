@@ -5,7 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { Broker } from './broker';
 import { AuditLog, AuditSink, scopedAudit } from './governance/audit';
 import { BudgetExceeded, LlmBudget, costMicrocents } from './governance/budget';
-import { sha256Hex } from './governance/canonical';
+import { canonicalize, sha256Hex } from './governance/canonical';
+import { withActionLifetime } from './governance/lifetime';
 import { Governor } from './governance/governor';
 import { Policy, defaultPolicy } from './governance/policy';
 import { ParentLimits, SpawnRequestSchema, SpendPool, SpendSlice, SubagentRejected, SubagentScope, attenuate, rootScope, scopeSha256, scopeSummary } from './governance/subagent';
@@ -13,7 +14,7 @@ import { Ed25519Signer, Signer } from './governance/signer';
 import { MnemoPaySpendAuthority, NoPaymentRail, PaymentRail, SpendAuthority } from './governance/spend';
 import { TaintTracker, TaintedFileStore } from './governance/taint';
 import { Action, Approver, Decision, GovernorDenied, SubagentRef } from './governance/types';
-import type { ChatTurn, LLM, LlmResult } from './llm/types';
+import type { ChatTurn, LLM, LlmResult, LlmCallOptions } from './llm/types';
 import { CognitiveMemory, MemoryVerifyReport } from './memory/CognitiveMemory';
 import { DEFAULT_TOOL_NAMES, type RunResult, type Sandbox } from './sandbox/types';
 import { SelectingSandbox } from './sandbox/select';
@@ -146,6 +147,8 @@ export class StarClawEngine {
   /** At most one generated-code run (and so at most one sandbox container) at a time, across owner and scheduled runs. */
   private sandboxLock: Promise<unknown> = Promise.resolve();
   private readonly main: RunCtx;
+  private ownerQueue: Promise<unknown> = Promise.resolve();
+  private ownerPending = 0;
 
   constructor(o: EngineOptions) {
     this.id = o.id ?? 'starclaw';
@@ -275,34 +278,53 @@ export class StarClawEngine {
   }
 
   /** Start a fresh conversation: clears history and the session taint. Only a human-facing layer should call this. */
-  newSession() {
+  newSession(): boolean {
+    if (this.ownerPending) return false; // Never clear provenance held by an active or queued run.
     this.history.length = 0;
     this.governor.taint.reset();
+    this.governor.setRunContext(undefined);
     this.audit.append('session.new', {});
+    return true;
   }
 
-  private async llmCall<T>(ctx: RunCtx, fn: () => Promise<LlmResult<T>>, what: string): Promise<T> {
+  private async llmCall<T>(ctx: RunCtx, fn: (options: LlmCallOptions) => Promise<LlmResult<T>>, what: string): Promise<T> {
     const dl = ctx.governor.runContext?.deadlineAt;
-    if (dl !== undefined && Date.now() > dl) throw new Error(ctx.sub ? 'the sub-agent exceeded its wall-clock deadline' : 'the scheduled run exceeded its wall-clock limit (scheduled.maxRunSeconds)');
+    if (dl !== undefined && Date.now() > dl) throw new Error(ctx.sub ? 'the sub-agent exceeded its wall-clock deadline' : ctx.scheduled ? 'the scheduled run exceeded its wall-clock limit (scheduled.maxRunSeconds)' : 'the agent exceeded its wall-clock deadline');
     ctx.budget.assertCanSpend();
-    const r = await fn();
+    const r = await fn({ budget: ctx.budget });
     const micro = costMicrocents(r.usage, r.price);
-    ctx.budget.record(micro);
+    if (!r.prepaid) ctx.budget.record(micro);
     ctx.audit.append('llm.usage', { what, jobId: ctx.scheduled?.jobId, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, microcents: micro, priceAssumed: r.priceAssumed ?? false, runCentsCeil: ctx.budget.runCentsCeil, dayCentsCeil: ctx.budget.dayCentsCeil });
     return r.value;
   }
 
-  private runSandbox(code: string, broker: Broker, unlocked = false): Promise<RunResult> {
+  private runSandbox(code: string, broker: Pick<Broker, 'handle'>, unlocked = false): Promise<RunResult> {
     // A sub-agent runs INSIDE its parent's brokered call, so the parent holds the lock: waiting for it would deadlock.
     // Sub-agent runs are capped by subagents.maxConcurrent instead.
-    if (unlocked) return this.sandbox.run(code, (call) => broker.handle(call));
-    const next = this.sandboxLock.then(() => this.sandbox.run(code, (call) => broker.handle(call)));
+    const invoke = async () => {
+      let live = true;
+      try {
+        return await this.sandbox.run(code, (call) => withActionLifetime(() => live, () => broker.handle(call)));
+      } finally { live = false; }
+    };
+    if (unlocked) return invoke();
+    const next = this.sandboxLock.then(invoke);
     this.sandboxLock = next.catch(() => {});
     return next;
   }
 
+  private enqueueOwner<T>(fn: () => Promise<T>): Promise<T> {
+    this.ownerPending++;
+    const pending = this.ownerQueue.then(fn).finally(() => { this.ownerPending--; });
+    this.ownerQueue = pending.catch(() => {});
+    return pending;
+  }
+
   async executeGoal(goal: string, o: GoalOptions = {}): Promise<GoalResult> {
-    return this.runGoal(this.main, goal, o);
+    return this.enqueueOwner(() => {
+      this.governor.setRunContext(undefined);
+      return this.runGoal(this.main, goal, o);
+    });
   }
 
   /**
@@ -529,6 +551,8 @@ export class StarClawEngine {
       ctx.runId = randomUUID();
       ctx.spawned = { total: 0, live: 0 };
     }
+    const agentDeadline = Date.now() + this.policy.agent.maxSeconds * 1000;
+    gov.setRunContext({ ...(gov.runContext ?? { origin: 'owner' as const }), deadlineAt: Math.min(agentDeadline, gov.runContext?.deadlineAt ?? agentDeadline) });
     ctx.budget.newRun();
     const origin = o.origin ?? 'owner';
     if (origin !== 'owner') gov.taint.mark('non-owner-message', o.originRef ?? 'non-owner');
@@ -540,9 +564,9 @@ export class StarClawEngine {
     try {
       ctx.history.push({ role: 'user', content: goal });
       // Unattended jobs are always tasks: a "conversation" reply would go nowhere.
-      const intent = scheduled || sub ? 'task' : await this.llmCall(ctx, () => this.llm.classifyIntent(goal), 'classify');
+      const intent = scheduled || sub ? 'task' : await this.llmCall(ctx, (options) => this.llm.classifyIntent(goal, options), 'classify');
       if (intent === 'conversation') {
-        const reply = await this.llmCall(ctx, () => this.llm.converse(goal, ctx.history.slice(0, -1)), 'converse');
+        const reply = await this.llmCall(ctx, (options) => this.llm.converse(goal, ctx.history.slice(0, -1), options), 'converse');
         ctx.history.push({ role: 'assistant', content: reply });
         ctx.audit.append('goal.completed', { kind: 'conversation' });
         return { success: true, kind: 'conversation', reply, tainted: gov.taint.tainted, llmCostCentsCeil: ctx.budget.runCentsCeil };
@@ -557,7 +581,7 @@ export class StarClawEngine {
       // 2. Reuse a verified skill if one matches; otherwise generate.
       let code = '';
       let reusedId: string | undefined;
-      const skillMem = memories.find((m) => m.kind === 'skill');
+      const skillMem = memories.find((m) => m.kind === 'skill' && m.meta.goal === goal);
       if (skillMem) {
         try {
           code = this.skills.load(String(skillMem.meta.name), String(skillMem.meta.sha256));
@@ -569,54 +593,100 @@ export class StarClawEngine {
         }
       }
       if (!code) {
-        code = await this.llmCall(ctx, () => this.llm.generateCode({ goal, memoryContext, history: ctx.history.slice(0, -1), tainted: gov.taint.tainted, subagent: sub && { depth: sub.scope.depth, tools: [...sub.scope.tools], domains: sub.scope.domains === 'any' ? 'any' : [...sub.scope.domains], readPaths: [...sub.scope.readPaths], writePaths: [...sub.scope.writePaths], spendCents: sub.scope.spendCents, maxActions: sub.scope.maxActions } }), 'codegen');
+        code = await this.llmCall(ctx, (options) => this.llm.generateCode({ goal, memoryContext, history: ctx.history.slice(0, -1), tainted: gov.taint.tainted, subagent: sub && { depth: sub.scope.depth, tools: [...sub.scope.tools], domains: sub.scope.domains === 'any' ? 'any' : [...sub.scope.domains], readPaths: [...sub.scope.readPaths], writePaths: [...sub.scope.writePaths], spendCents: sub.scope.spendCents, maxActions: sub.scope.maxActions } }, options), 'codegen');
         code = await this.validateAndHeal(ctx, goal, code);
       }
 
-      // 3. Fail closed on the sandbox BEFORE asking a human to approve anything.
-      await this.sandbox.ensureSafe();
+      let codeHash = '';
+      let run!: RunResult;
+      let retries = 0;
+      let usedSteps = 0;
+      const deadline = gov.runContext!.deadlineAt!;
+      const effects = new Map<string, { step: number; result: unknown }>();
+      const deduplicate = new Set(['writeFile', 'editFile', 'applyPatch', 'spend', 'notifyOwner', 'scheduleCreate']);
+      const observations: ChatTurn[] = [];
+      const readOnly = new Set(['readFile', 'listDir', 'fetchUrl', 'search', 'browseReadText', 'browseReadLinks']);
+      for (let step = 0; step < this.policy.agent.maxSteps; step++) {
+        usedSteps++;
+        if (Date.now() >= deadline) return fail('task', 'agent wall-clock limit exceeded');
+        let attemptedEffect = false;
+        let denied: Decision | undefined;
+        const stepBroker = { handle: async (call: Parameters<Broker['handle']>[0]) => {
+          if (Date.now() >= deadline) throw new Error('agent wall-clock limit exceeded');
+          const effect = !readOnly.has(call.name);
+          const key = effect ? sha256Hex(canonicalize(call)) : '';
+          const previous = effects.get(key);
+          if (effect && deduplicate.has(call.name) && previous && previous.step < step) return previous.result;
+          if (effect) attemptedEffect = true;
+          try {
+            const result = await ctx.broker.handle(call);
+            if (effect) effects.set(key, { step, result });
+            return result;
+          } catch (e) {
+            if (e instanceof GovernorDenied) denied = e.decision;
+            throw e;
+          }
+        }};
+        // 3. Fail closed on the sandbox BEFORE asking a human to approve anything.
+        await this.sandbox.ensureSafe();
 
-      // 4. Approval to execute (decision is audited before the code runs).
-      const codeHash = sha256Hex(code);
-      const execAction: Action = {
-        class: 'exec',
-        target: 'sandbox:js',
-        summary: `Run generated JavaScript (sha256 ${codeHash.slice(0, 12)}, ${code.length} chars) in the isolated sandbox; its tool calls are governed individually`,
-        detail: code,
-      };
-      const d = await gov.authorize(execAction);
-      if (!d.allowed) {
-        ctx.history.push({ role: 'assistant', content: `I was not permitted to run code for that goal (${d.reason}).` });
-        return fail('task', `execution not permitted: ${d.reason}`, { denied: d });
-      }
+        // 4. Approval to execute (decision is audited before the code runs).
+        codeHash = sha256Hex(code);
+        const execAction: Action = {
+          class: 'exec',
+          target: 'sandbox:js',
+          summary: `Run generated JavaScript (sha256 ${codeHash.slice(0, 12)}, ${code.length} chars) in the isolated sandbox; its tool calls are governed individually`,
+          detail: code,
+        };
+        const d = await gov.authorize(execAction);
+        if (!d.allowed) {
+          ctx.history.push({ role: 'assistant', content: `I was not permitted to run code for that goal (${d.reason}).` });
+          return fail('task', `execution not permitted: ${d.reason}`, { denied: d });
+        }
 
-      ctx.audit.append('exec.start', { decisionId: d.id, codeSha256: codeHash, tainted: gov.taint.tainted, jobId: ctx.scheduled?.jobId });
-      const run: RunResult = await this.runSandbox(code, ctx.broker, !!sub);
-      ctx.audit.append('exec.result', {
-        decisionId: d.id,
-        codeSha256: codeHash,
-        ok: run.ok,
-        error: run.error?.slice(0, 500),
-        timedOut: run.timedOut,
-        brokerCalls: run.brokerCalls,
-        stdoutBytes: run.stdout.length,
-        durationMs: run.durationMs,
-        taintedAfter: gov.taint.tainted,
-      });
-      if (!run.ok) {
-        if (reusedId) this.memory.reportError(reusedId);
-        return fail('task', run.error ?? 'execution failed', { stdout: run.stdout });
+        ctx.audit.append('exec.start', { decisionId: d.id, codeSha256: codeHash, tainted: gov.taint.tainted, jobId: ctx.scheduled?.jobId });
+        run = await this.runSandbox(code, stepBroker, !!sub);
+        ctx.audit.append('exec.result', {
+          decisionId: d.id,
+          codeSha256: codeHash,
+          ok: run.ok,
+          error: run.error?.slice(0, 500),
+          timedOut: run.timedOut,
+          brokerCalls: run.brokerCalls,
+          stdoutBytes: run.stdout.length,
+          durationMs: run.durationMs,
+          taintedAfter: gov.taint.tainted,
+        });
+        const continuation = run.ok && run.value && typeof run.value === 'object' && (run.value as any).__starclaw === 'continue';
+        if (denied && (!run.ok || continuation)) return fail('task', run.error ?? `Denied (${denied.by}): ${denied.reason}`, { denied, stdout: run.stdout });
+        if (run.ok && !continuation) break;
+        if (!run.ok) {
+          if (reusedId) this.memory.reportError(reusedId);
+          // A failed side effect has an ambiguous outcome: never automatically replay it.
+          if (attemptedEffect || run.timedOut || retries >= this.policy.agent.maxRuntimeRetries) return fail('task', run.error ?? 'execution failed', { stdout: run.stdout });
+          retries++;
+        }
+        if (step + 1 >= this.policy.agent.maxSteps) return fail('task', 'agent step limit exceeded before completion', { stdout: run.stdout });
+        // Any observation sent back into a model is untrusted, including errors.
+        gov.taint.mark('tool-output', `agent-step:${step + 1}`);
+        const observation = JSON.stringify({ ok: run.ok, result: run.value, error: run.error, stdout: run.stdout }).slice(0, 12000);
+        observations.push({ role: 'assistant', content: code.slice(0, 16000) }, { role: 'user', content: `UNTRUSTED OBSERVATION from step ${step + 1}: ${observation}\nContinue the original goal from this progress. Do not repeat completed side effects. Verify the outcome before returning a final result.` });
+        ctx.audit.append('agent.continue', { step: step + 1, runtimeRetry: !run.ok, observationSha256: sha256Hex(observation) });
+        log(`Planning step ${step + 2} from observed results`);
+        reusedId = undefined;
+        code = await this.llmCall(ctx, (options) => this.llm.generateCode({ goal, memoryContext, history: [...ctx.history.slice(0, -1), ...observations], tainted: true, subagent: sub && { depth: sub.scope.depth, tools: [...sub.scope.tools], domains: sub.scope.domains === 'any' ? 'any' : [...sub.scope.domains], readPaths: [...sub.scope.readPaths], writePaths: [...sub.scope.writePaths], spendCents: sub.scope.spendCents, maxActions: sub.scope.maxActions } }, options), 'replan');
+        code = await this.validateAndHeal(ctx, goal, code);
       }
 
       // 5. Persist what was learned (each write is itself governed; denial is not a failure of the goal).
       // (A sub-agent writes no memory and saves no skill: its answer goes to its parent, which decides what to keep.)
       if (!sub) {
-        const content = `Completed: ${goal.slice(0, 300)}`;
+        const content = `Completed: ${goal.slice(0, 300)}\nOutcome (untrusted data): ${JSON.stringify(run.value ?? null).slice(0, 2000)}`;
         const memAction: Action = { class: 'memory.write', target: 'memory.db', summary: `Remember: ${content}`, detail: content };
         const md = await gov.authorize(memAction);
         if (md.allowed) this.memory.remember(content, { tainted: gov.taint.tainted });
       }
-      if (this.learnSkills && !reusedId && !scheduled && !sub) await this.maybeSaveSkill(gov, goal, code, codeHash);
+      if (this.learnSkills && !reusedId && !scheduled && !sub && usedSteps === 1) await this.maybeSaveSkill(gov, goal, code, codeHash);
 
       ctx.history.push({ role: 'assistant', content: `Ran code (sha256 ${codeHash.slice(0, 12)}); result: ${JSON.stringify(run.value ?? null).slice(0, 300)}` });
       ctx.audit.append('goal.completed', { kind: 'task', tainted: gov.taint.tainted, jobId: ctx.scheduled?.jobId });
@@ -638,8 +708,13 @@ export class StarClawEngine {
    * runs ATTENUATED: its declared capabilities intersected with the current policy, never wider. Unsigned/agent-authored
    * skills (`this.skills`) are unaffected by this path and keep their existing semantics.
    */
-  async runRegistrySkill(id: string, o: GoalOptions = {}): Promise<GoalResult> {
+  runRegistrySkill(id: string, o: GoalOptions = {}): Promise<GoalResult> {
+    return this.enqueueOwner(() => this.runRegistrySkillNow(id, o));
+  }
+
+  private async runRegistrySkillNow(id: string, o: GoalOptions): Promise<GoalResult> {
     const gov = this.governor;
+    gov.setRunContext({ origin: 'owner', deadlineAt: Date.now() + this.policy.agent.maxSeconds * 1000 });
     const fail = (error: string, extra: Partial<GoalResult> = {}): GoalResult => {
       this.audit.append('goal.failed', { error: error.slice(0, 500), skill: id });
       return { success: false, kind: 'task', error, tainted: gov.taint.tainted, llmCostCentsCeil: 0, ...extra };
@@ -662,6 +737,7 @@ export class StarClawEngine {
         { id: manifest.id, version: manifest.version },
         fs.realpathSync.native(this.workspaceDir),
       );
+      agov.setRunContext(gov.runContext);
       const codeHash = sha256Hex(skill.code);
       const d = await agov.authorize({
         class: 'exec',
@@ -677,9 +753,7 @@ ${skill.code}`,
       const broker = this.makeBroker(agov, () => ({ ...this.main, governor: agov }));
       const handler = attenuatedHandler((call) => broker.handle(call), manifest.capabilities, { id: manifest.id, version: manifest.version }, this.audit);
       this.audit.append('exec.start', { decisionId: d.id, codeSha256: codeHash, skill: ref, bundleSha256: skill.bundleSha256, tainted: gov.taint.tainted });
-      const next = this.sandboxLock.then(() => this.sandbox.run(skill.code, handler));
-      this.sandboxLock = next.catch(() => {});
-      const run = await next;
+      const run = await this.runSandbox(skill.code, { handle: handler });
       this.audit.append('exec.result', { decisionId: d.id, codeSha256: codeHash, skill: ref, ok: run.ok, error: run.error?.slice(0, 500), timedOut: run.timedOut, brokerCalls: run.brokerCalls, stdoutBytes: run.stdout.length, durationMs: run.durationMs, taintedAfter: gov.taint.tainted });
       // A revocation that landed while it ran is recorded; the run's effects were already governed call by call.
       if (!run.ok) return fail(run.error ?? 'execution failed', { stdout: run.stdout });
@@ -697,7 +771,7 @@ ${skill.code}`,
     const d = await gov.authorize(action);
     if (!d.allowed) return;
     const saved = this.skills.save(name, code);
-    this.memory.remember(`SKILL ${saved.name}: ${goal.slice(0, 300)}`, { kind: 'skill', meta: { name: saved.name, sha256: saved.sha256 }, tainted: gov.taint.tainted });
+    this.memory.remember(`SKILL ${saved.name}: ${goal.slice(0, 300)}`, { kind: 'skill', meta: { name: saved.name, sha256: saved.sha256, goal }, tainted: gov.taint.tainted });
     this.audit.append('skill.saved', { name: saved.name, sha256: saved.sha256 });
   }
 
@@ -711,7 +785,7 @@ ${skill.code}`,
       } catch (err: any) {
         if (attempt >= MAX_FIX_ATTEMPTS) throw new Error(`generated code does not parse after ${MAX_FIX_ATTEMPTS} repair attempts: ${err.message}`);
         const msg = String(err.message);
-        current = await this.llmCall(ctx, () => this.llm.fixCode(goal, current, msg), 'fixCode');
+        current = await this.llmCall(ctx, (options) => this.llm.fixCode(goal, current, msg, options), 'fixCode');
       }
     }
   }

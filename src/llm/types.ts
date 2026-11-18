@@ -1,4 +1,6 @@
-import type { LlmUsage } from '../governance/budget';
+import type { LlmBudget, LlmUsage } from '../governance/budget';
+
+export interface LlmCallOptions { budget?: LlmBudget; }
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -12,6 +14,8 @@ export interface LlmResult<T> {
   price: { inputCentsPerMTok: number; outputCentsPerMTok: number };
   /** True when no price was configured for this model and a conservative placeholder was used. */
   priceAssumed?: boolean;
+  /** The backend reserved and reconciled this call before returning. */
+  prepaid?: boolean;
 }
 
 export type Intent = 'conversation' | 'task';
@@ -31,8 +35,8 @@ export interface CodegenRequest {
  * Everything returned by an LLM is untrusted input to the Governor, never a decision.
  */
 export interface LLM {
-  classifyIntent(goal: string): Promise<LlmResult<Intent>>;
-  generateCode(req: CodegenRequest): Promise<LlmResult<string>>;
-  converse(message: string, history: ChatTurn[]): Promise<LlmResult<string>>;
-  fixCode(goal: string, code: string, error: string): Promise<LlmResult<string>>;
+  classifyIntent(goal: string, options?: LlmCallOptions): Promise<LlmResult<Intent>>;
+  generateCode(req: CodegenRequest, options?: LlmCallOptions): Promise<LlmResult<string>>;
+  converse(message: string, history: ChatTurn[], options?: LlmCallOptions): Promise<LlmResult<string>>;
+  fixCode(goal: string, code: string, error: string, options?: LlmCallOptions): Promise<LlmResult<string>>;
 }

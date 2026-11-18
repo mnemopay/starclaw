@@ -158,7 +158,7 @@ export function stageWorkspace(workspaceReal: string, stateDirReal: string, limi
         walk(childAbs, childRel);
         continue;
       }
-      if (!st.isFile()) {
+      if (!st.isFile() || st.nlink !== 1) {
         skip(childRel, 'not a regular file');
         continue;
       }
@@ -169,7 +169,7 @@ export function stageWorkspace(workspaceReal: string, stateDirReal: string, limi
       try {
         data = fs.readFileSync(childAbs);
         const after = fs.lstatSync(childAbs);
-        if (after.isSymbolicLink() || !after.isFile() || !insideOrEqual(fs.realpathSync.native(childAbs), workspaceReal)) {
+        if (after.isSymbolicLink() || !after.isFile() || after.nlink !== 1 || !insideOrEqual(fs.realpathSync.native(childAbs), workspaceReal)) {
           skip(childRel, 'changed into a link while being read');
           continue;
         }

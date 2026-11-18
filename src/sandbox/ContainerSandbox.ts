@@ -137,6 +137,8 @@ export class ContainerSandbox implements Sandbox {
       let exitCode: number | null = null;
       let queue: Promise<void> = Promise.resolve();
       let killed = false;
+      let cleanup: Promise<unknown> = Promise.resolve();
+      let cleanupError: string | undefined;
 
       const child: ChildProcess = spawn(this.docker, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false });
 
@@ -144,7 +146,17 @@ export class ContainerSandbox implements Sandbox {
         if (killed) return;
         killed = true;
         // Exactly this container, by its unique name. Never by image or by pattern.
-        execFile(this.docker, ['kill', name], { timeout: 15_000, windowsHide: true }, () => {});
+        cleanup = (async () => {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const removed = await dockerExec(this.docker, ['rm', '--force', name], 15_000);
+            if (removed.code === 0 || /no such container/i.test(removed.stderr)) return;
+            // --rm can race explicit removal. Wait for the exact container to disappear.
+            const exists = await dockerExec(this.docker, ['inspect', '--format', '{{.Id}}', name], 15_000);
+            if (exists.code !== 0 && /no such/i.test(exists.stderr)) return;
+            await new Promise(resolve => setTimeout(resolve, 250));
+          }
+          cleanupError = `could not remove sandbox container ${name}`;
+        })();
         try {
           child.kill();
         } catch {
@@ -239,7 +251,7 @@ export class ContainerSandbox implements Sandbox {
         if (fatalReason) error = `protocol violation: ${fatalReason}`;
         else if (timedOut) error = `timed out after ${timeoutMs} ms`;
         else if (!doneMsg && !error) error = exitCode === 137 ? 'sandbox container was killed (exit 137: out of memory or killed)' : 'sandbox container exited without a result';
-        resolve({ ok, value, error, stdout, stderr, timedOut, outputTruncated: truncated, brokerCalls: calls, durationMs: Date.now() - started, forgedFrames: parser.forged, exitCode });
+        void cleanup.then(() => resolve({ ok: ok && !cleanupError, value, error: cleanupError ? `${error ?? 'execution failed'}; ${cleanupError}` : error, stdout, stderr, timedOut, outputTruncated: truncated, brokerCalls: calls, durationMs: Date.now() - started, forgedFrames: parser.forged, exitCode }));
       };
 
       child.on('error', (e) => finish(`failed to start docker: ${e.message}`));

@@ -38,7 +38,10 @@ export function createGateway(engine: StarClawEngine, approver: HttpApprover, ap
   api.use(approvalRouter(approver));
   api.get('/status', (_req, res) => res.json({ tainted: engine.tainted, auditRecords: engine.audit.length, pendingApprovals: approver.pendingCount }));
   api.post('/session/new', (_req, res) => {
-    engine.newSession();
+    if (engine.newSession() === false) {
+      res.status(409).json({ error: 'A goal is active or queued. Wait for it to finish before starting a new session.' });
+      return;
+    }
     res.json({ ok: true });
   });
   api.post('/goal', express.json({ limit: '64kb' }), (req, res) => {

@@ -26,7 +26,7 @@ export const TOOL_CLASSES: Record<string, ActionClass[]> = {
 };
 
 /** Classes a registry skill can never trigger, whatever it declares. */
-const NEVER_FOR_SKILLS: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create', 'skill.save', 'skill.install', 'memory.write']);
+const NEVER_FOR_SKILLS: ReadonlySet<ActionClass> = new Set<ActionClass>(['agent.spawn', 'host.exec', 'schedule.create', 'skill.save', 'skill.install', 'memory.write']);
 
 export function domainMatches(pattern: string, host: string): boolean {
   const h = host.toLowerCase();
@@ -53,6 +53,7 @@ export class AttenuatedGovernor extends Governor {
   private scopeViolation(a: Action): string | undefined {
     const c = this.caps;
     if (NEVER_FOR_SKILLS.has(a.class)) return `${a.class} is never available to registry skills`;
+    if (a.class === 'shell.exec' && !c.paths.includes('**')) return 'shell requires whole-workspace path access (**)' ;
     switch (a.class) {
       case 'fs.read':
       case 'fs.write': {

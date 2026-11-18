@@ -11,3 +11,4 @@ audit/
 .starclaw/
 skills/*
 !skills/.gitkeep
+.validation/

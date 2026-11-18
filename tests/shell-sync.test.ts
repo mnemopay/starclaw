@@ -184,9 +184,10 @@ describe('workspace staging and write-back', () => {
     } catch {
       canFileLink = false;
     }
-    const snap = emptySnap({ 'a.txt': 'A', lnk: 'x' });
+    const snap = emptySnap(canFileLink ? { 'a.txt': 'A', lnk: 'x' } : { 'a.txt': 'A' });
     fs.writeFileSync(path.join(wsReal, 'a.txt'), 'CHANGED-ON-HOST');
-    const rep = applyPlan(plan([F('a.txt', 'FROM-CONTAINER'), F('lnk', 'new')], snap), snap, wsReal, allow);
+    const files = [F('a.txt', 'FROM-CONTAINER'), ...(canFileLink ? [F('lnk', 'new')] : [])];
+    const rep = applyPlan(plan(files, snap), snap, wsReal, allow);
     assert.deepEqual(rep.conflicts.map((c) => c.path), ['a.txt']);
     assert.equal(fs.readFileSync(path.join(wsReal, 'a.txt'), 'utf8'), 'CHANGED-ON-HOST');
     if (canFileLink) {

@@ -195,7 +195,10 @@ export class SlackGateway {
     const channel: string = ev.channel;
     const send = (t: string) => this.o.api.call('chat.postMessage', { channel, text: slackEscape(t).slice(0, 3900), ...PLAIN }).catch(() => {});
     if (isOwner && text === '/new') {
-      this.o.engine.newSession();
+      if (this.o.engine.newSession() === false) {
+        await send('A goal is active or queued. Wait for it to finish before starting a new session.');
+        return;
+      }
       await send('New session started (taint cleared).');
       return;
     }

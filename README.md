@@ -1,9 +1,12 @@
 # StarClaw
 
-A governed autonomous agent. You give it a goal; a language model writes JavaScript to achieve it; StarClaw
-runs that code in an isolated sandbox (a locked-down Docker container, with Node's permission model inside it) where **every capability is brokered through a policy
-engine** that can allow, ask a human, or deny, and that writes a **signed, hash-chained audit record before
-anything runs**.
+An autonomous assistant for research, code changes, and recurring work, with explicit permissions,
+spending controls, and verifiable action receipts. Run it locally and give it goals through the CLI,
+web console, Telegram, Slack, or Discord.
+
+StarClaw generates JavaScript, runs it in an isolated sandbox, and can inspect results before planning
+the next step. **Capabilities pass through a policy engine** that allows, asks a human, or denies,
+with a signed, hash-chained audit record written before an approved action runs.
 
 > **Status: `2.0.0-alpha.7` (this repo; unreleased), an alpha. The latest published alpha is `2.0.0-alpha.3`, on the
 > npm `next` tag; not yet recommended for customers.** See [Known limits](#known-limits) and
@@ -33,6 +36,26 @@ npx starclaw run "summarise the headlines on https://example.com"
 npx starclaw                                 # interactive session
 npx starclaw audit verify .starclaw/audit.jsonl --pubkey-file .starclaw/audit.pub
 ```
+
+### Tasks with multiple steps
+
+The model can return `{ __starclaw: "continue", observation: ... }` to inspect an intermediate result
+and generate the next program. Ordinary return values finish the task. Observations are untrusted:
+they preserve provenance and never grant additional permissions. Example goals:
+
+* Research a company using the configured search provider, inspect the sources, and write a sourced brief.
+* Inspect workspace files, prepare a patch, then use the container shell to run the project's checks.
+* Create a scheduled monitor and notify the owner when a checked condition needs attention.
+
+Limits are configurable through `agent: { maxSteps: 4, maxRuntimeRetries: 1, maxSeconds: 300 }`.
+Runtime recovery is allowed only when the failed step attempted no side effects, did not time out,
+and encountered no policy denial. Identical successful file writes, payments, owner messages and
+schedule creation from an earlier step are deduplicated within the same goal. This is an in-memory
+guard, not durable payment idempotency or automatic crash recovery. Multi-step programs are not
+saved as single reusable skills. Saved programs are reused only for the exact goal that created them.
+
+Starting a new session while owner work is running or queued is refused; wait for it to finish.
+See [the implementation notes and product roadmap](docs/competitive-roadmap.md) for current boundaries.
 
 With the default policy StarClaw **asks you before** running code, writing a file, touching the network,
 saving memory, saving a skill or spending money. The only thing it does silently is read files inside

@@ -197,6 +197,7 @@ export const PolicySchema = z
   .object({
     version: z.literal(1),
     workspace: z.string().min(1).default('./workspace'),
+    agent: z.object({ maxSteps: z.number().int().min(1).max(12).default(4), maxRuntimeRetries: z.number().int().min(0).max(2).default(1), maxSeconds: z.number().int().min(1).max(3600).default(300) }).strict().default({ maxSteps: 4, maxRuntimeRetries: 1, maxSeconds: 300 }),
     approvalTimeoutSeconds: z.number().int().min(5).max(3600).default(120),
     defaults: z
       .object({
