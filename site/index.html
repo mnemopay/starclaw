@@ -2,10 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="canonical" href="https://starclaw.dev/"><title>StarClaw — An agent that works. On your terms.</title>
+<link rel="canonical" href="https://starclaw.dev/"><title>StarClaw — An open-source agent for research, code and scheduled work</title>
 <meta name="description" content="Research, edit files, and run scheduled tasks with an open-source agent. Explore a recorded task, its approval request, and its verifiable audit log.">
 <meta name="theme-color" content="#f4f1e9"><link rel="icon" href="assets/mark.svg">
 <link rel="stylesheet" href="assets/fonts/fonts.css"><link rel="stylesheet" href="editorial/editorial.css"><script src="editorial/editorial.js" defer></script>
+<link rel="stylesheet" href="editorial/motion.css">
+<script defer src="assets/gsap-3.13.0/gsap.min.js"></script>
+<script defer src="assets/gsap-3.13.0/ScrollTrigger.min.js"></script>
+<script defer src="editorial/motion.js"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -16,15 +20,61 @@
   <a class="nav-cta" href="download/index.html">Install StarClaw <span>↗</span></a>
 </header>
 <main id="main">
-<section class="hero">
-  <div class="hero-kicker"><span class="tiny-star">✳</span> Open source · Developer alpha</div>
-  <h1>An agent that works.<br><em>On your terms.</em></h1>
-  <p class="hero-description">Research a topic. Change a file. Check a watchlist.<br>StarClaw runs the task. Your policy decides what it can do.</p>
-  <div class="hero-actions"><a class="button" href="download/index.html">Install the alpha <span>↗</span></a><a class="underlined" href="#recorded-run">Inspect a recorded run <span>↓</span></a></div>
+<section class="cover" aria-labelledby="cover-title">
+  <div class="cover-story"><div class="cover-copy"><p class="cover-edition"><i></i> Open source <span>/</span> Developer alpha</p>
+  <h1 id="cover-title"><span>Hand off</span><span>the <em>work.</em></span></h1>
+  <p class="cover-deck">Give StarClaw a research question, a code change, or a recurring check. You set the tools it can use and the actions that need your say.</p>
+  <div class="cover-links"><a class="button" href="download/index.html">Install StarClaw <span>↗</span></a><a class="underlined" href="#recorded-run">Explore a run <span>↓</span></a></div></div>
+  <div class="cover-chapter">
+    <p class="section-label">Inside the recorded run</p>
+    <h2>Four notes.<br><em>One brief.</em></h2>
+    <p class="cover-deck">The agent reads launch-notes.txt and drafts a Markdown file. Its policy requires approval before it can save the brief.</p>
+    <a class="underlined" href="#recorded-run">Review the proposed write <span>↓</span></a>
+  </div></div>
+  <figure class="fold"><div class="press">
+  <svg viewBox="0 0 470 438" role="img" aria-labelledby="plate-title"><title id="plate-title">An illustrated stack of notes unfolds into a proposed launch brief.</title>
+  <defs><pattern id="screen" width="4" height="4" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".58" fill="#74270d" opacity=".55"/></pattern></defs>
+  <rect width="470" height="438" fill="url(#screen)"/>
+  <g stroke="#642411" stroke-width=".7" fill="none"><path d="M18 28h16m-8-8v16M436 28h16m-8-8v16M18 410h16m-8-8v16M436 410h16m-8-8v16"/></g>
+  <g class="paper-fan"><g class="leaf" transform="rotate(-66.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-63.25 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-60.50 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-57.75 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-55.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-52.25 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-49.50 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-46.75 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-44.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-41.25 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-38.50 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-35.75 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-33.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#df542e" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-30.25 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-27.50 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-24.75 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-22.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-19.25 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-16.50 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-13.75 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-11.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-8.25 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-5.50 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(-2.75 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(0.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(2.75 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(5.50 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(8.25 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(11.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(13.75 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(16.50 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(19.25 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#f2cca4" stroke="#301e18" stroke-width="1.35"/></g>
+<g class="leaf" transform="rotate(22.00 220 322)"><path d="M202 98 L356 78 Q370 154 362 226 L350 344 Q282 324 217 337 Q226 220 202 98Z" fill="#fff4d8" stroke="#301e18" stroke-width="1.35"/><g transform="translate(222 116) rotate(-7)"><text class="plate-small">STARCLAW</text><path d="M0 12H124" stroke="currentColor"/><text y="58" class="plate-title">Launch</text><text y="91" class="plate-title" font-style="italic">brief.</text><path d="M4 115H121 M4 122H109 M5 129H116 M6 152H90" fill="none" stroke="currentColor"/><text x="6" y="188" class="plate-small">fs.write</text></g></g></g></svg></div>
+  <figcaption><span><b>launch-notes.txt</b> → launch-brief.md</span><button hidden type="button" id="refold" aria-label="Replay the paper fold animation">↻ Replay fold</button></figcaption></figure>
 </section>
 <section class="run-example" id="recorded-run" aria-labelledby="run-title">
   <div class="run-intro"><div><p class="section-label">A recorded run</p><h2 id="run-title">Read the notes. Write a brief.<br><em>Ask before saving it.</em></h2></div><p>Real engine. Scripted model and approver.<br>This page replays two recorded outcomes.<br>No agent runs in your browser.</p></div>
   <div class="run-book">
+    <div class="folio-track" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="run-book-top"><span class="run-book-name">launch-brief / example task</span><a href="editorial/example-run.json" download>Download the signed example ↗</a></div>
     <div class="run-layout">
       <div class="run-steps" role="tablist" aria-label="Inspect the recorded task" aria-orientation="vertical">
@@ -85,6 +135,7 @@
   </div>
 </section>
 <section class="manifesto"><span class="section-label">Run it on your machine</span><h2>Try the agent.<br><em>Read what it did.</em></h2><code class="install-line">npm install starclaw@next</code><a class="button" href="download/index.html">Get the installation steps <span>↗</span></a><div class="manifesto-notes"><span>Apache-2.0</span><span>Your choice of model</span><span>Developer alpha</span></div></section>
+<div class="press-signature" aria-hidden="true">starclaw<em>.</em></div>
 <div class="honest-note"><span>ONE IMPORTANT NOTE.</span><p>StarClaw is alpha software. It does not prevent prompt injection or guarantee safe outcomes. <a href="security/index.html">Understand the limits ↗</a></p></div>
 </main>
 <footer><div class="footer-brand"><a class="brand" href="index.html"><span class="brand-star">✳</span> starclaw<span class="brand-dot">.</span></a><p>Run locally.<br>Inspect the source.</p></div><div class="footer-links"><a href="https://github.com/mnemopay/starclaw">GitHub ↗</a><a href="docs/index.html">Documentation ↗</a><a href="security/index.html">Security ↗</a><a href="mailto:hello@starclaw.dev">Say hello ↗</a></div><div class="footer-bottom"><span>© 2026 J&amp;B Enterprise LLC. Apache-2.0.</span></div></footer>
