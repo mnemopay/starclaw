@@ -47,7 +47,7 @@
     </ul>
 
     <h2>Commands</h2>
-    <p>This list is taken from <code>src/cli.ts</code> and the <code>bin</code> entries in <code>package.json</code> at version <code>2.0.0-alpha.5</code> (the repository, not yet on npm). The published <code>2.0.0-alpha.3</code> does not have the Slack and Discord commands. Run <code>starclaw --help</code> for the authoritative list on your install.</p>
+    <p>This list is taken from <code>src/cli.ts</code> and the <code>bin</code> entries in <code>package.json</code> at version <code>2.0.0-alpha.7</code> (published on npm under <code>next</code>). Run <code>starclaw --help</code> for the authoritative list on your install.</p>
     <p>Most commands also accept <code>--policy</code>, <code>--state-dir</code>, <code>--workspace</code>, <code>--sandbox auto|container|process</code> and <code>--require-container</code>.</p>
     <div class="table-wrap">
     <table>
@@ -66,6 +66,10 @@
         <tr><td><code>starclaw slack status</code></td><td>Check the Slack policy block and environment. Prints variable names and set / NOT set, never values.</td></tr>
         <tr><td><code>starclaw discord status</code></td><td>Same check for Discord.</td></tr>
         <tr><td><code>starclaw discord register [--guild &lt;id&gt;]</code></td><td>Register the <code>/starclaw</code> slash command with Discord, globally or in one server.</td></tr>
+        <tr><td><code>starclaw skills keys add | list | remove</code></td><td>The keyring of publisher keys you trust. Only skills signed by a pinned key can ever install or run.</td></tr>
+        <tr><td><code>starclaw skills keygen | sign</code></td><td>Publisher side: create a signing key, and sign a skill folder into a <code>.starclaw-skill</code> bundle.</td></tr>
+        <tr><td><code>starclaw skills verify | install &lt;file&gt;</code></td><td>Check a bundle, or install it. Installing always asks you, showing the publisher, version, requested capabilities and a diff.</td></tr>
+        <tr><td><code>starclaw skills list | revoke</code></td><td>Installed registry skills and whether each would run now; revoke one (or one version).</td></tr>
         <tr><td><code>starclaw-telegram</code></td><td>Telegram front end. Needs <code>TELEGRAM_BOT_TOKEN</code> and a numeric <code>TELEGRAM_OWNER_ID</code>; fails closed without them.</td></tr>
         <tr><td><code>starclaw-server</code></td><td>HTTP API and small web console on <code>127.0.0.1:3000</code>. Needs <code>STARCLAW_API_KEY</code> (16+ characters). No TLS.</td></tr>
       </tbody>
