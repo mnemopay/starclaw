@@ -175,6 +175,56 @@ export const ChannelsPolicySchema = z
   })
   .strict();
 
+/** An MCP tool name as StarClaw accepts it (the action target is `server/tool`, so `/` is never allowed). */
+export const MCP_TOOL_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+export const McpServerSchema = z
+  .object({
+    /** Used in rules as the first part of the target: `{ class: "mcp.call", target: "github/list_*", verdict: "allow" }`. */
+    name: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/, 'lowercase letters, digits, _ and -, starting with a letter'),
+    transport: z.enum(['stdio', 'http']),
+    /** stdio: the program to start (it runs on this PC, OUTSIDE StarClaw's sandbox). */
+    command: z.string().min(1).max(500).optional(),
+    args: z.array(z.string().max(2000)).max(64).default([]),
+    /** stdio: NAMES of environment variables to pass to the server (nothing else of yours is inherited). */
+    env: z.array(EnvNameSchema).max(32).default([]),
+    /** http: the server's endpoint. https, or http to this PC only. */
+    url: z.string().url().max(500).optional(),
+    /** http: NAME of the env var holding a bearer token. */
+    bearerTokenEnv: EnvNameSchema.optional(),
+    /** Only these tools are offered and callable (others are refused before anyone is asked). Absent = all the server lists. */
+    tools: z.array(z.string().regex(MCP_TOOL_RE)).max(200).optional(),
+    timeoutSeconds: z.number().int().min(1).max(300).default(30),
+    /** Text a single call may return to the agent (more is cut). */
+    maxResultChars: z.number().int().min(200).max(200_000).default(20_000),
+  })
+  .strict()
+  .superRefine((s, ctx) => {
+    if (s.transport === 'stdio') {
+      if (!s.command) ctx.addIssue({ code: 'custom', path: ['command'], message: 'a stdio server needs a command' });
+      if (s.url || s.bearerTokenEnv) ctx.addIssue({ code: 'custom', path: ['url'], message: 'url/bearerTokenEnv are for http servers' });
+    } else {
+      if (!s.url) ctx.addIssue({ code: 'custom', path: ['url'], message: 'an http server needs a url' });
+      else {
+        const u = new URL(s.url);
+        const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+        if (u.protocol !== 'https:' && !(u.protocol === 'http:' && loopback)) ctx.addIssue({ code: 'custom', path: ['url'], message: 'must be https (plain http only to localhost)' });
+        if (u.username || u.password) ctx.addIssue({ code: 'custom', path: ['url'], message: 'must not contain credentials (use bearerTokenEnv)' });
+      }
+      if (s.command || s.args.length || s.env.length) ctx.addIssue({ code: 'custom', path: ['command'], message: 'command/args/env are for stdio servers' });
+    }
+  });
+export type McpServerConfig = z.infer<typeof McpServerSchema>;
+
+/** MCP servers the agent may call (tools.mcpList / tools.mcpCall). Disabled by default; every call is an `mcp.call` action. */
+export const McpPolicySchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    servers: z.array(McpServerSchema).max(20).default([]),
+  })
+  .strict()
+  .refine((m) => new Set(m.servers.map((s) => s.name)).size === m.servers.length, { message: 'MCP server names must be unique', path: ['servers'] });
+
 export const SubagentsPolicySchema = z
   .object({
     /** Off by default. When false every tools.spawnAgent call is refused before anything else happens. */
@@ -232,12 +282,15 @@ export const PolicySchema = z
         'agent.spawn': VerdictSchema.default('ask'),
         /** Whatever this says, installing a registry skill always needs a human (see ALWAYS_ASK). */
         'skill.install': VerdictSchema.default('ask'),
+        /** Calling a tool on an MCP server (needs mcp.enabled too). Never auto-allowed in a tainted session or an unattended run. */
+        'mcp.call': VerdictSchema.default('ask'),
       })
       .strict()
       .default({
         exec: 'ask', 'fs.read': 'ask', 'fs.write': 'ask', 'net.egress': 'ask', spend: 'ask', 'skill.save': 'ask', 'memory.write': 'ask',
         'shell.exec': 'ask', 'host.exec': 'ask', 'schedule.create': 'ask', 'notify.owner': 'allow',
         'browser.open': 'ask', 'browser.navigate': 'allow', 'browser.read': 'allow', 'browser.click': 'allow', 'browser.type': 'ask', 'agent.spawn': 'ask', 'skill.install': 'ask',
+        'mcp.call': 'ask',
       }),
     rules: z.array(RuleSchema).max(500).default([{ class: 'fs.read', inWorkspace: true, verdict: 'allow' }]),
     spend: z
@@ -337,6 +390,8 @@ export const PolicySchema = z
     channels: ChannelsPolicySchema.default(ChannelsPolicySchema.parse({})),
     /** Governed sub-agents (tools.spawnAgent): children that can only ever hold LESS authority than the run that starts them. Disabled by default. */
     subagents: SubagentsPolicySchema.default(SubagentsPolicySchema.parse({})),
+    /** MCP servers (tools.mcpList / tools.mcpCall). Disabled by default; only servers declared here exist. */
+    mcp: McpPolicySchema.default(McpPolicySchema.parse({})),
     /** Treat stdout of host commands and of the shell container as untrusted (taints the session). */
     execOutputTaints: z.boolean().default(true),
   })

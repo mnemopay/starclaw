@@ -15,6 +15,7 @@ import { MnemoPaySpendAuthority, NoPaymentRail, PaymentRail, SpendAuthority } fr
 import { TaintTracker, TaintedFileStore } from './governance/taint';
 import { Action, Approver, Decision, GovernorDenied, SubagentRef } from './governance/types';
 import type { ChatTurn, LLM, LlmResult, LlmCallOptions } from './llm/types';
+import { McpManager } from './mcp/manager';
 import { CognitiveMemory, MemoryVerifyReport } from './memory/CognitiveMemory';
 import { DEFAULT_TOOL_NAMES, type RunResult, type Sandbox } from './sandbox/types';
 import { SelectingSandbox } from './sandbox/select';
@@ -136,6 +137,8 @@ export class StarClawEngine {
   readonly shell: ShellRunner;
   private notifier?: OwnerNotifier;
   private readonly browserDiscoveryPath?: string;
+  /** Connections to owner-declared MCP servers (policy mcp); shared by every run, closed by close(). */
+  private readonly mcp?: McpManager;
   private readonly notifyLimiter: NotifyLimiter;
   private readonly taintedFiles: TaintedFileStore;
   private readonly spendAuthority: SpendPool;
@@ -194,6 +197,7 @@ export class StarClawEngine {
         containerRuntime: this.policy.sandbox.containerRuntime,
       });
     this.taintedFiles = new TaintedFileStore(path.join(this.stateDir, 'tainted-files.json'));
+    if (this.policy.mcp.enabled && this.policy.mcp.servers.length) this.mcp = new McpManager(this.policy.mcp.servers, { cwd: this.workspaceDir });
     this.jobs = new JobStore(path.join(this.stateDir, 'scheduler.json'), () => this.policy.scheduled);
     this.notifyLimiter = new NotifyLimiter(path.join(this.stateDir, 'notify-log.json'), this.policy.notify);
     fs.mkdirSync(this.workspaceDir, { recursive: true });
@@ -224,7 +228,13 @@ export class StarClawEngine {
       notifyLimiter: this.notifyLimiter,
       jobs: this.jobs,
       browserDiscoveryPath: this.browserDiscoveryPath,
+      mcp: this.mcp,
     });
+  }
+
+  /** Stop MCP server processes / connections. Safe to call more than once. */
+  async close(): Promise<void> {
+    await this.mcp?.close();
   }
 
   get tainted(): boolean {

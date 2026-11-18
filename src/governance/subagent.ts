@@ -30,6 +30,8 @@ export const TOOL_CLASSES: Readonly<Record<string, readonly ActionClass[]>> = {
   browseClose: ['browser.read'],
   browseClick: ['browser.click'],
   browseType: ['browser.type'],
+  mcpList: ['mcp.call'],
+  mcpCall: ['mcp.call'],
   spawnAgent: ['agent.spawn'],
   runCommand: ['host.exec'],
   scheduleCreate: ['schedule.create'],

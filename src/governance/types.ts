@@ -32,6 +32,8 @@ export const ACTION_CLASSES = [
   'agent.spawn',
   /** Installing (or replacing) a skill from the signed skills registry. A human ALWAYS decides; never in unattended runs. */
   'skill.install',
+  /** Calling a tool on an owner-declared MCP server (target `server/tool`). Its result is untrusted. */
+  'mcp.call',
 ] as const;
 export type ActionClass = (typeof ACTION_CLASSES)[number];
 
@@ -51,13 +53,14 @@ export const TAINT_SENSITIVE: ReadonlySet<ActionClass> = new Set<ActionClass>([
   'browser.type',
   'agent.spawn',
   'skill.install',
+  'mcp.call',
 ]);
 
 /** Action classes that policy can never auto-allow, tainted or not: a human always decides (or the action is denied). */
 export const ALWAYS_ASK: ReadonlySet<ActionClass> = new Set<ActionClass>(['schedule.create', 'browser.open', 'skill.install']);
 
 /** Action classes that a scheduled (unattended) run can never have auto-allowed by a policy `allow`. */
-export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open', 'browser.type', 'agent.spawn', 'skill.install']);
+export const NEVER_AUTO_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['spend', 'host.exec', 'schedule.create', 'browser.open', 'browser.type', 'agent.spawn', 'skill.install', 'mcp.call']);
 
 /** Action classes that are refused outright for runs with origin `scheduled`, whatever the policy says. */
 export const DENIED_WHEN_SCHEDULED: ReadonlySet<ActionClass> = new Set<ActionClass>(['host.exec', 'schedule.create', 'skill.install']);

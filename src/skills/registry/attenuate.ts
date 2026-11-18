@@ -25,6 +25,8 @@ export const TOOL_CLASSES: Record<string, ActionClass[]> = {
   browseClose: ['browser.read'],
   browseClick: ['browser.click'],
   browseType: ['browser.type'],
+  mcpList: ['mcp.call'],
+  mcpCall: ['mcp.call'],
 };
 
 /** Classes a registry skill can never trigger, whatever it declares. */
