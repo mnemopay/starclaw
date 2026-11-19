@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0-alpha.9 (unreleased)
+## 2.0.0-alpha.9 (2026-11-18)
 
 ### Added
 * **Guided model setup** in `starclaw app`. With no usable model (for example no key yet, as on a fresh install) the app opens a setup page instead of exiting; `--setup` forces it. The page detects Ollama and LM Studio running on this PC (with their models), takes a key for Groq, Anthropic, OpenAI or OpenRouter (with a link to get one), lists the models that key can use live from the provider (no model names are baked in except Groq's built-in one), and **runs a real test call before anything can be saved**. Saving repeats the test on the server, validates the policy, writes the key to `<home>/.env` and the model to `<home>/starclaw.policy.json` (other policy fields and `.env` lines are kept; local models are priced at 0), then starts the agent on the same port: the page lands in the console, already signed in. Setup only offers fixed providers: the browser never supplies a URL, so the setup API cannot be used to make this PC call an arbitrary host. Everything under `/api` needs the console key. A broken policy file is still an error, not a reason to open setup.
