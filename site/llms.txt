@@ -1,0 +1,22 @@
+# StarClaw
+
+> StarClaw is an open-source (Apache-2.0) autonomous AI agent for research, code changes and scheduled work, by J&B Enterprise LLC. Every action it takes is checked against a policy you control (allow / ask / deny), risky actions are put to a human, generated code runs in a sandbox, and a signed, hash-chained audit log records each decision and action. Current version: 2.0.0-alpha.9 (developer alpha).
+
+Key facts:
+- Does NOT prevent prompt injection; it limits what a steered model can do next. Once untrusted content (web pages, tool output) is in a session, sensitive actions escalate to a human.
+- Install: Windows installer (GitHub Releases); macOS/Linux `curl -fsSL https://starclaw.dev/install.sh | bash`; or `npm install -g starclaw` (Node.js 25.9+).
+- First run: guided setup detects Ollama or LM Studio on the machine, or takes a Groq, Anthropic, OpenAI or OpenRouter key, and tests the model before saving.
+- Console: a local chat in the browser (127.0.0.1 only) with live progress and approvals in the conversation.
+- Channels: Telegram, Slack, Discord, WhatsApp (Cloud API), Signal (via a local signal-cli bridge), email (DMARC-checked). Approvals can be answered from the owner's channel.
+- MCP: servers the owner declares; every tool call is a governed `mcp.call` action; results are untrusted.
+- Skills: a signed, publisher-pinned registry with owner-approved installs and capability attenuation (no open store).
+- Audit: Ed25519-signed hash-chained JSONL log; `starclaw audit export` writes an EU AI Act Article 12 bundle in MnemoPay's format.
+- Spend: hard caps on model and payment spend.
+
+## Pages
+- [Home](https://starclaw.dev/): a recorded run with a real approval request and an in-browser signature check.
+- [Install](https://starclaw.dev/download/)
+- [Security model](https://starclaw.dev/security/): what is enforced, what is not.
+- [Docs](https://starclaw.dev/docs/)
+- [StarClaw vs OpenClaw vs Hermes Agent](https://starclaw.dev/compare/)
+- [Source](https://github.com/mnemopay/starclaw) · [npm](https://www.npmjs.com/package/starclaw) · [Changelog](https://github.com/mnemopay/starclaw/blob/main/CHANGELOG.md)

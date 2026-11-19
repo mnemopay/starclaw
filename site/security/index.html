@@ -26,7 +26,7 @@
 
     <h2>Known limits</h2>
     <ul>
-      <li>Only Windows 11 x64 with Node 25.9.0 was tested. Linux and macOS are untested (the startup probe will tell you what it finds).</li>
+      <li>The sandbox layers were tested on Windows 11 x64 with Node 25.9.0. On Linux and macOS, CI tests installation and startup only, not the sandbox layers (the startup probe will tell you what it finds on your machine).</li>
       <li>Node.js 25.9.0 or newer is required. On Node 24.22.3 and 22.23.5 the permission model still allows outbound network, so the probe fails and StarClaw refuses to run generated code. Node 25.0 to 25.8 were not tested; the runtime probe decides.</li>
       <li>Containers are not VMs: they share the host kernel. Passing an alternative OCI runtime (such as <code>runsc</code>) is supported by a setting, but that path is untested.</li>
       <li>The container does not protect <code>.starclaw/audit.key</code> if the host itself is compromised. The key lives on the host.</li>

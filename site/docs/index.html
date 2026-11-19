@@ -12,22 +12,24 @@
     </ul>
 
     <h2 id="commands">Command reference</h2>
-    <p>This list is taken from <code>src/cli.ts</code> and the <code>bin</code> entries in <code>package.json</code> at version <code>2.0.0-alpha.7</code> (published on npm under <code>next</code>). Run <code>starclaw --help</code> for the authoritative list on your install.</p>
+    <p>This list is taken from <code>src/cli.ts</code> and the <code>bin</code> entries in <code>package.json</code> at version <code>2.0.0-alpha.9</code> (published on npm as <code>latest</code> and <code>next</code>). Run <code>starclaw --help</code> for the authoritative list on your install.</p>
     <p>Most commands also accept <code>--policy</code>, <code>--state-dir</code>, <code>--workspace</code>, <code>--sandbox auto|container|process</code> and <code>--require-container</code>.</p>
     <div class="table-wrap">
     <table>
       <thead><tr><th scope="col">Command</th><th scope="col">What it does</th></tr></thead>
       <tbody>
         <tr><td><code>starclaw run &lt;goal&gt;</code></td><td>Run one goal and exit. Options: <code>--non-interactive</code> (nothing is approved, so everything the policy does not auto-allow is denied), <code>--json</code>.</td></tr>
+        <tr><td><code>starclaw app</code></td><td>The console in your browser, on <code>127.0.0.1</code> only: a chat with live progress, approvals in the conversation, and searchable history. Opens already holding its key. On first run (or with <code>--setup</code>) it opens guided model setup: finds Ollama or LM Studio on this computer, or takes a Groq, Anthropic, OpenAI or OpenRouter key, and tests the model before saving. Options: <code>--home</code>, <code>--port</code>, <code>--no-open</code>.</td></tr>
         <tr><td><code>starclaw</code></td><td>Interactive session (the default). In-session commands: <code>/new</code> (fresh session, clears taint), <code>/status</code>, <code>exit</code>.</td></tr>
         <tr><td><code>starclaw policy init [file]</code></td><td>Write the conservative default policy (default file <code>starclaw.policy.json</code>). Refuses to overwrite.</td></tr>
         <tr><td><code>starclaw policy check [file]</code></td><td>Validate a policy file. Exit code 1 if invalid.</td></tr>
         <tr><td><code>starclaw doctor</code></td><td>Probe the isolation layers on this machine and report what is blocked, which layer is active and why. Also reports model, search, browser and channel configuration (names and set / NOT set only).</td></tr>
         <tr><td><code>starclaw audit verify &lt;file&gt;</code></td><td>Check an audit log offline: hash chain, signatures and head checkpoint. Options: <code>--pubkey</code>, <code>--pubkey-file</code>, <code>--allow-missing-head</code>, <code>--json</code>. Pin the public key; without it the key inside the log is trusted.</td></tr>
+        <tr><td><code>starclaw audit export &lt;file&gt; --out &lt;dir&gt;</code></td><td>Verify the log, then write an EU AI Act Article 12 bundle in MnemoPay’s format. Refuses a log that does not verify, and never overwrites existing bundle files. Options: <code>--pubkey</code>, <code>--pubkey-file</code>, <code>--operator</code>, <code>--retention-months</code> (6 or more), <code>--budget-usd</code>.</td></tr>
         <tr><td><code>starclaw sandbox build | status | clean</code></td><td>Build the Docker sandbox image, show Docker and image state, or remove leftover sandbox containers (only those labelled <code>starclaw.sandbox=1</code>).</td></tr>
         <tr><td><code>starclaw shell build | status | clean</code></td><td>Same three actions for the governed shell container used by <code>tools.shell</code>.</td></tr>
         <tr><td><code>starclaw schedule add | list | remove | pause | resume</code></td><td>Manage unattended jobs. <code>add &lt;name&gt; &lt;schedule&gt; &lt;goal&gt;</code> takes a 5-field cron expression or <code>@every 30m</code>; options <code>--heartbeat</code> and <code>--notify</code>. Jobs run only while the daemon runs.</td></tr>
-        <tr><td><code>starclaw daemon</code></td><td>Long-running process: Telegram gateway, Slack and Discord webhook channels when enabled in the policy, and the scheduler. <code>--no-telegram</code> runs without Telegram.</td></tr>
+        <tr><td><code>starclaw daemon</code></td><td>Long-running process: Telegram gateway, the Slack, Discord, WhatsApp, Signal and email channels when enabled in the policy, and the scheduler. <code>--no-telegram</code> runs without Telegram.</td></tr>
         <tr><td><code>starclaw slack status</code></td><td>Check the Slack policy block and environment. Prints variable names and set / NOT set, never values.</td></tr>
         <tr><td><code>starclaw discord status</code></td><td>Same check for Discord.</td></tr>
         <tr><td><code>starclaw discord register [--guild &lt;id&gt;]</code></td><td>Register the <code>/starclaw</code> slash command with Discord, globally or in one server.</td></tr>
