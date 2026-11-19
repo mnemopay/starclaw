@@ -1,0 +1,11 @@
+.night{--bg:#171318;--fg:#f9eedc;--line:#574851;--accent:#ffa68a}
+.nav{position:relative;z-index:2}.bill{position:relative;isolation:isolate;overflow:hidden;min-height:clamp(490px,46vw,740px);display:flex;align-items:center;background:#21191a}
+.lens{position:absolute;inset:0 0 0 28%;z-index:-1;mask-image:linear-gradient(to right,transparent,#000 28%)}.lens video{height:100%;object-fit:cover}
+.billing{padding:4vw;max-width:42%;text-shadow:0 2px 20px #271b1b}.billing>p:first-child,.label,.credits small{font:12px 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase}
+.billing h1,.program h2,.end h2{font:normal clamp(94px,11vw,186px)/.79 Georgia,serif;letter-spacing:-.085em}.billing h1{margin:28px 0 30px}.billing h1 em,.program i,.end i{color:#ffb59f}.deck{max-width:32ch;font-size:clamp(16px,1.35vw,22px)}
+.transport{display:flex;align-items:center;gap:20px;background:#2a2027;padding:18px 4vw;border-block:1px solid var(--line);font:13px 'IBM Plex Mono'}
+.transport button{border:1px solid #97828d;background:none;padding:8px 14px;min-width:110px}.transport input{flex:1;min-width:50px;accent-color:#ffaf99}.transport output{white-space:nowrap}
+.program{display:grid;grid-template-columns:1fr 1.3fr;gap:7vw;padding:7vw 5vw}.program h2,.end h2{font-size:clamp(53px,6.2vw,102px);line-height:.97;margin:18px 0 32px}
+.credits button{display:flex;width:100%;gap:20px;align-items:baseline;text-align:left;border:0;border-top:1px solid var(--line);padding:22px 0;background:none}.credits b,.credits span span{display:block}.credits b{font:28px Georgia}.credits span span{margin-top:6px;color:#d4c0c7}.credits i{margin-left:auto}
+.end{background:#f0dfce;color:#30232a;padding:6vw max(5vw,calc((100% - 1080px)/2))}.end i{color:#934931}.end video{box-shadow:0 12px 42px #38242a30}.end p:last-child{margin-top:18px}
+@media(max-width:650px){.bill{min-height:530px;align-items:end}.lens{inset:0 0 20%;mask-image:linear-gradient(#000 52%,transparent)}.billing{max-width:100%;padding:20px}.billing h1{font-size:78px;line-height:.95;margin:10px 0}.billing br{display:none}.billing em:before{content:' '}.billing .deck{font-size:15px}.transport{gap:8px}.transport label{display:none}.transport button{min-width:80px}.program{display:block;padding:40px 20px}.program br{display:none}.program h2{margin-bottom:18px}.end{padding:40px 20px}}
