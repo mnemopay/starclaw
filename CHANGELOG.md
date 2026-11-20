@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0-alpha.10 (2026-11-20)
+
+### Fixed
+* **The default Groq setup works again.** Groq no longer serves `llama-3.3-70b-versatile` or `llama-3.1-8b-instant` on its on-demand tier (404 `model_not_found`, checked against Groq's live model list on 2026-11-19), so every install on the default `groq` provider failed on its first goal, and `llm.model` was ignored for `groq`. Groq now runs through the same OpenAI-compatible backend as the other providers: defaults `openai/gpt-oss-120b` (code) and `openai/gpt-oss-20b` (intent classification) at Groq's list prices on 2026-11-19 (15/60 and 8/30 cents per million tokens; the 20b input price of $0.075 is rounded up). `llm.model`, `llm.smallModel` and `llm.prices` override them; a model with no known or configured price uses the conservative placeholder. `groq-sdk` is no longer a dependency.
+* **Output cap per step: 1500 -> 8192 tokens, and configurable.** New policy field `llm.maxOutputTokens` (default 8192, 256 to 131072) for code generation and repair. 1500 cut whole-file edits off mid-program.
+* **Clear error when a model hits the cap.** A response that stops at the length limit (`finish_reason: "length"`, Anthropic `stop_reason: "max_tokens"`) with code cut off or no text at all is now an `LlmError` of kind `output-limit` that names the cap and how to raise it (or that the run's LLM budget limited it), instead of "no choices[0].message.content string". Truncated code is never run. Intent classification gets 256 tokens (reasoning models spent 31 to 84 tokens answering one word and returned nothing at 10) and falls back to `task`, the governed path, if it is still cut off. Chat keeps partial text.
+* Tests: 10 new in `tests/llm.test.ts` (Groq defaults and overrides, the cap and its policy bound, truncation for both providers). Full suite 619/619 with Docker. Checked live against Groq with the default policy: classification, code generation and chat.
+
 ## 2.0.0-alpha.9 (2026-11-18)
 
 ### Added

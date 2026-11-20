@@ -1,6 +1,6 @@
 {
   "name": "starclaw",
-  "version": "2.0.0-alpha.9",
+  "version": "2.0.0-alpha.10",
   "description": "A governed autonomous AI agent: every action is policy-checked, approval-gated, spend-capped and written to a tamper-evident audit log.",
   "license": "Apache-2.0",
   "author": "J&B Enterprise LLC <info@getbizsuite.com>",
