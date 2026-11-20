@@ -1,0 +1,7 @@
+Full @mnemopay/sdk suite (npx vitest run) on the agent-patched tree, after npm run build, 2026-11-20:
+ Test Files  97 passed | 1 skipped (98)
+      Tests  1454 passed | 3 skipped (1457)
+   Duration  2070.62s
+EXIT 0
+
+Alpha.9 on the unbuilt clone was 4 failed | 1448 passed | 3 skipped (1455), and those 4 failures loaded a missing dist/index.js. This run built dist first. The patch also added 2 tests in tests/audit-chain.test.ts. 1448 + 4 + 2 = 1454.

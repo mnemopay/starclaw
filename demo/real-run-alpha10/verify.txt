@@ -1,0 +1,3 @@
+OK: 61 records verified (chain, signatures, head checkpoint); key pinned
+
+EXIT 0

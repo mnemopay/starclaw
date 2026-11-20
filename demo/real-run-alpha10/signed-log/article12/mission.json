@@ -1,0 +1,25 @@
+{
+  "bundleVersion": "mnemopay-article12/1",
+  "operatorId": "starclaw-demo-alpha10",
+  "charter": {
+    "name": "starclaw",
+    "goal": "StarClaw agent audit log (61 records, key pinned)",
+    "budgetMaxUsd": 0
+  },
+  "result": {
+    "charterName": "starclaw",
+    "status": "error",
+    "spentUsd": 0.096774,
+    "outputs": [],
+    "auditDigest": "47877f7319958705c81bfb515d907f2f0bdefb117c69b99a696a90676168c0dc",
+    "startedAt": "2026-11-20T03:06:25.734Z",
+    "finishedAt": "2026-11-20T03:08:48.889Z"
+  },
+  "retention": {
+    "months": 6,
+    "startedAt": "2026-11-20T03:06:25.734Z",
+    "retainUntil": "2027-05-20T03:06:25.734Z",
+    "legalBasis": "EU AI Act Article 12 — automatic logging requirement"
+  },
+  "chainVerified": true
+}
