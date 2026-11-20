@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.0.0-alpha.11 (2026-11-20)
+
+### Fixed
+* **Default Groq no longer dies before step 1.** On alpha.10, `openai/gpt-oss-120b` answered the tool documentation in the code-generation prompt with a *native* tool call (`tools.listDir`), which Groq rejects with HTTP 400 `tool_use_failed` because no tools are declared. The prompt now says plainly that there is no native function calling, and the OpenAI-compatible backend (Groq included) retries once after `tool_use_failed` with a correction; the rejected call's input is counted (as roughly the retry's input, an over-estimate) so LLM budgets stay conservative. A second `tool_use_failed` is an error.
+* **HTTP 429 is retried.** Groq's free tier limits tokens per minute, and StarClaw's prompt is large enough that the next call inside a minute was refused. OpenAI-compatible providers now wait for `Retry-After` (default 20 s, each wait capped at 60 s) and retry up to `llm.rateLimitRetries` times (new policy field, default 3, 0 to 10).
+* **Approvals show the whole action.** The plain-text approval cut every payload at 3,000 characters, so an approver saw only part of a 4,491-character program (alpha.10 real run). Payloads are now shown up to 20,000 characters, always with `Payload: N chars, sha256 <hash of the FULL payload>`; anything longer ends with an explicit `[N more chars HIDDEN here ...]` notice saying where to see all of it. `GET /api/approvals` returns the full `detail` and `detailSha256`. The audit log records `detailChars` and `detailSha256` for every decision, so a decision is bound to the full payload even where the stored copy is cut (16,000 chars).
+* **`fs.write` approvals show a diff.** Replacing an existing text file now shows a unified diff (old -> new) instead of the start of the new file, so a change near the end of a long file is visible; new files (and non-text content) show the full new content.
+
+### Changed
+* **Setup prefers what you already have; Groq is not "the default".** `starclaw app` setup now recommends, in order: an Anthropic key, an OpenRouter key, an OpenAI key (in the environment or the app's `.env`), a running Ollama / LM Studio server with models, an existing Groq key. That choice is preselected and explained. With nothing found, Groq is only *suggested* as the free option, never silently chosen. The policy schema default is still `provider: "groq"`, so existing policies keep working. The README now recommends a strong model for code changes and reports the real-run evidence.
+
+### Real run (branch `demo/real-run-alpha11`)
+* Default Groq on this build ran the alpha.10 demo goal end to end with approvals: 2 attempts, no `tool_use_failed`, full 4,372- and 4,675-character programs shown for approval. Neither attempt fixed the bug: each program guessed the file's structure without reading it first, found nothing to patch and wrote nothing (it failed safely). For code changes use a stronger model (alpha.10: Claude Sonnet 5.5 via OpenRouter, one attempt).
+
+### Known, not fixed
+* A denial still ends the job. A job whose program returns `{ success: false }` is reported `success: true` at the top level, and a memory note labelled "Completed:" is proposed for it (the approver can deny it, as in the real run).
+* Tests: 16 new (`tests/llm.test.ts`, `tests/approvals-alpha11.test.ts`, `tests/setup.test.ts`). Full suite 590/590 without Docker; container + sandbox suites 102 with Docker (2 timing-based shell write-back race tests failed once under load and passed 17/17 when re-run alone).
+
 ## 2.0.0-alpha.10 (2026-11-20)
 
 ### Fixed
