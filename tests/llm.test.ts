@@ -283,3 +283,91 @@ return out;`);
     }
   });
 });
+
+describe('Groq built-ins and overrides (fake OpenAI-compatible endpoint)', () => {
+  test('defaults: gpt-oss-120b for code, gpt-oss-20b for classification, with their built-in prices', async () => {
+    const s = await withServer((_r, res) => json(res, 200, openaiOk('task')));
+    const llm = createLLM(llmPolicy({ provider: 'groq', baseUrl: s.base + '/openai/v1' }), { GROQ_API_KEY: KEY });
+    const c = await llm.classifyIntent('read a file');
+    const g = await llm.generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false });
+    assert.equal(s.seen[0].url, '/openai/v1/chat/completions');
+    assert.equal(s.seen[0].headers.authorization, `Bearer ${KEY}`);
+    assert.equal(s.seen[0].body.model, 'openai/gpt-oss-20b');
+    assert.equal(s.seen[1].body.model, 'openai/gpt-oss-120b');
+    assert.deepEqual(c.price, { inputCentsPerMTok: 8, outputCentsPerMTok: 30 });
+    assert.deepEqual(g.price, { inputCentsPerMTok: 15, outputCentsPerMTok: 60 });
+    assert.equal(g.priceAssumed, false);
+    assert.ok(!/llama-3/.test(describeLlm(llmPolicy({ provider: 'groq' }), { GROQ_API_KEY: KEY }).model), 'retired models are not advertised');
+  });
+
+  test('llm.model / smallModel / prices override the built-ins (previously ignored for groq)', async () => {
+    const s = await withServer((_r, res) => json(res, 200, openaiOk('task')));
+    const prices = { inputCentsPerMTok: 20, outputCentsPerMTok: 90 };
+    const llm = createLLM(llmPolicy({ provider: 'groq', model: 'qwen/qwen3.8-27b', baseUrl: s.base, prices }), { GROQ_API_KEY: KEY });
+    const c = await llm.classifyIntent('x');
+    const g = await llm.converse('hi', []);
+    assert.deepEqual(s.seen.map((q) => q.body.model), ['qwen/qwen3.8-27b', 'qwen/qwen3.8-27b'], 'a custom model also classifies unless smallModel is set');
+    assert.deepEqual(c.price, prices);
+    assert.deepEqual(g.price, prices);
+    const s2 = await withServer((_r, res) => json(res, 200, openaiOk('task')));
+    const unknown = await createLLM(llmPolicy({ provider: 'groq', model: 'some/new-model', smallModel: 'openai/gpt-oss-20b', baseUrl: s2.base }), { GROQ_API_KEY: KEY }).generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false });
+    assert.equal(s2.seen[0].body.model, 'some/new-model');
+    assert.equal(unknown.priceAssumed, true, 'a model with no known or configured price uses the placeholder');
+    assert.deepEqual(unknown.price, ASSUMED_PRICE);
+  });
+
+  test('a missing key is a config error with the old message', () => {
+    assert.throws(() => createLLM(llmPolicy({ provider: 'groq' }), {}), (e: any) => e instanceof LlmError && e.kind === 'config' && /^GROQ_API_KEY is not set/.test(e.message));
+  });
+});
+
+describe('output cap (llm.maxOutputTokens) and truncated responses', () => {
+  const lengthStop = (content: string | null) => ({ id: 'c1', choices: [{ index: 0, finish_reason: 'length', message: { role: 'assistant', content } }], usage: { prompt_tokens: 13, completion_tokens: 9 } });
+  const oa = (b: string, extra: Record<string, unknown> = {}) => createLLM(llmPolicy({ provider: 'openai-compat', model: 'm', baseUrl: b + '/v1', ...extra }), { OPENAI_API_KEY: KEY });
+
+  test('code generation asks for 8192 tokens by default (was 1500) and honours llm.maxOutputTokens', async () => {
+    const s = await withServer((_r, res) => json(res, 200, openaiOk('module.exports={execute:async()=>1}')));
+    await oa(s.base).generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false });
+    await oa(s.base, { maxOutputTokens: 16000 }).fixCode('x', 'code', 'err');
+    assert.equal(s.seen[0].body.max_tokens, 8192);
+    assert.equal(s.seen[1].body.max_tokens, 16000);
+    assert.throws(() => llmPolicy({ provider: 'openai-compat', model: 'm', maxOutputTokens: 100 }), /maxOutputTokens|256/);
+  });
+
+  test('classification has room for reasoning models (was 10 tokens)', async () => {
+    const s = await withServer((_r, res) => json(res, 200, openaiOk('task')));
+    await oa(s.base).classifyIntent('x');
+    assert.ok(s.seen[0].body.max_tokens >= 256);
+  });
+
+  test('openai-compat: finish_reason=length with no content is a clear output-limit error, not "malformed"', async () => {
+    const s = await withServer((_r, res) => json(res, 200, lengthStop(null)));
+    await assert.rejects(
+      () => oa(s.base).generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false }),
+      (e: any) => e instanceof LlmError && e.kind === 'output-limit' && /returned no text/.test(e.message) && /llm\.maxOutputTokens/.test(e.message),
+    );
+  });
+
+  test('code cut off at the cap is refused instead of being run', async () => {
+    const s = await withServer((_r, res) => json(res, 200, lengthStop('async function execute() {\n  const a = ')));
+    await assert.rejects(() => oa(s.base).fixCode('x', 'c', 'e'), (e: any) => e.kind === 'output-limit' && /cut off/.test(e.message));
+  });
+
+  test('classification that runs out of tokens falls back to "task" (the governed path); chat keeps partial text', async () => {
+    const s = await withServer((_r, res) => json(res, 200, s.seen.length === 1 ? lengthStop(null) : lengthStop('partial answer')));
+    const llm = oa(s.base);
+    assert.equal((await llm.classifyIntent('hello')).value, 'task');
+    assert.equal((await llm.converse('hi', [])).value, 'partial answer');
+  });
+
+  test('chat with no text at the cap is an output-limit error', async () => {
+    const s = await withServer((_r, res) => json(res, 200, lengthStop('')));
+    await assert.rejects(() => oa(s.base).converse('hi', []), (e: any) => e.kind === 'output-limit');
+  });
+
+  test('anthropic: stop_reason=max_tokens is detected', async () => {
+    const s = await withServer((_r, res) => json(res, 200, { content: [], stop_reason: 'max_tokens', usage: { input_tokens: 3, output_tokens: 8192 } }));
+    const llm = createLLM(llmPolicy({ provider: 'anthropic', model: 'm', baseUrl: s.base }), { ANTHROPIC_API_KEY: KEY });
+    await assert.rejects(() => llm.generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false }), (e: any) => e.kind === 'output-limit');
+  });
+});

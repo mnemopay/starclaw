@@ -24,7 +24,7 @@ Requires **Node.js >= 25.9.0** (see [why](#why-node-259)).
 
 ```bash
 npm install -g starclaw       # 2.0.0-alpha.9 (latest); the macOS/Linux and Windows installers above bundle Node for you
-export GROQ_API_KEY=...        # the bundled LLM backend is Groq; the LLM is an interface, bring your own
+export GROQ_API_KEY=...        # default backend: Groq (openai/gpt-oss-120b); or set llm.provider/model for Anthropic, OpenAI, OpenRouter, Ollama, LM Studio
 npx starclaw sandbox build    # optional but recommended: builds the Docker sandbox image (needs Docker)
 npx starclaw doctor           # probes every isolation layer and prints what is blocked, which layer is ACTIVE and why
 ```

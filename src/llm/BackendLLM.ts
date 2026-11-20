@@ -25,6 +25,8 @@ export interface ChatRequest {
 export interface ChatResponse {
   text: string;
   usage: LlmUsage;
+  /** The provider stopped because it reached max_tokens (OpenAI finish_reason "length", Anthropic stop_reason "max_tokens"). */
+  truncated?: boolean;
 }
 export interface ChatBackend {
   readonly provider: string;
@@ -36,6 +38,10 @@ export interface BackendConfig {
   /** Optional cheaper model used for intent classification. */
   smallModel?: string;
   price?: Price;
+  /** Price of smallModel when it differs from `price` (Groq's built-in pair). Defaults to `price`. */
+  smallPrice?: Price;
+  /** Output-token cap for code generation and repair (policy llm.maxOutputTokens). */
+  maxOutputTokens?: number;
   baseUrl?: string;
   apiKey?: string;
   timeoutMs?: number;
@@ -52,6 +58,14 @@ function stripFences(s: string): string {
   return s.replace(/```(?:javascript|typescript|js|ts)?/g, '').trim();
 }
 
+/** Default output cap for code generation and repair when the policy does not set llm.maxOutputTokens. */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+/** Reasoning models spend tokens before the one-word answer, so the classifier needs more than a few tokens. */
+const CLASSIFY_MAX_TOKENS = 256;
+const CONVERSE_MAX_TOKENS = 2048;
+
+type Truncation = 'throw' | 'throw-if-empty' | 'allow';
+
 /** Prompts + parsing shared by every provider. Everything the model returns is untrusted text. */
 export class BackendLLM implements LLM {
   readonly priceAssumed: boolean;
@@ -67,11 +81,25 @@ export class BackendLLM implements LLM {
     return this.cfg.model;
   }
 
-  private async chat(model: string, system: string, messages: ChatTurn[], maxTokens: number, temperature: number, options?: LlmCallOptions): Promise<LlmResult<string>> {
-    const reservation = reserveChat(options, { system, messages }, maxTokens, this.price);
+  get maxOutputTokens() {
+    return this.cfg.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  }
+
+  private async chat(model: string, system: string, messages: ChatTurn[], maxTokens: number, temperature: number, options: LlmCallOptions | undefined, onTruncated: Truncation, price: Price = this.price): Promise<LlmResult<string>> {
+    const reservation = reserveChat(options, { system, messages }, maxTokens, price);
     const r = await this.backend.complete({ system, messages, maxTokens: reservation.maxTokens, temperature, model });
     reservation.settle(r.usage);
-    return { value: r.text, usage: r.usage, price: this.price, priceAssumed: this.priceAssumed, prepaid: reservation.prepaid };
+    if (r.truncated && (onTruncated === 'throw' || (onTruncated === 'throw-if-empty' && !r.text.trim()))) {
+      const why =
+        reservation.maxTokens < maxTokens
+          ? `the remaining LLM budget only funded ${reservation.maxTokens} of ${maxTokens} output tokens; raise the run's LLM budget`
+          : `raise llm.maxOutputTokens in the policy (now ${this.maxOutputTokens}) or ask for a smaller step`;
+      throw new LlmError(
+        `${this.backend.provider} model "${model}" hit its ${reservation.maxTokens}-token output cap before finishing${r.text.trim() ? ' (the output was cut off)' : ' and returned no text'}: ${why}`,
+        'output-limit',
+      );
+    }
+    return { value: r.text, usage: r.usage, price, priceAssumed: this.priceAssumed, prepaid: reservation.prepaid };
   }
 
   async classifyIntent(goal: string, options?: LlmCallOptions): Promise<LlmResult<Intent>> {
@@ -79,9 +107,11 @@ export class BackendLLM implements LLM {
       this.cfg.smallModel ?? this.cfg.model,
       'Classify the user message as "conversation" (chat, greetings, questions needing no action) or "task" (anything needing files, web, code or commands). Reply with exactly one word.',
       [{ role: 'user', content: goal }],
-      10,
+      CLASSIFY_MAX_TOKENS,
       0.1,
       options,
+      'allow',
+      this.cfg.smallModel ? (this.cfg.smallPrice ?? this.price) : this.price,
     );
     // Anything that is not clearly "conversation" is a task: fail towards the governed path.
     return { ...r, value: /^\s*"?conversation/i.test(r.value) ? 'conversation' : 'task' };
@@ -89,12 +119,12 @@ export class BackendLLM implements LLM {
 
   async generateCode(req: CodegenRequest, options?: LlmCallOptions): Promise<LlmResult<string>> {
     const history = req.history.slice(-10);
-    const r = await this.chat(this.cfg.model, codegenSystemPrompt(req.memoryContext, req.tainted, req.subagent), [...history, { role: 'user', content: `Goal: ${req.goal}\n\nWrite the code.` }], 1500, 0.2, options);
+    const r = await this.chat(this.cfg.model, codegenSystemPrompt(req.memoryContext, req.tainted, req.subagent), [...history, { role: 'user', content: `Goal: ${req.goal}\n\nWrite the code.` }], this.maxOutputTokens, 0.2, options, 'throw');
     return { ...r, value: stripFences(r.value) };
   }
 
   async converse(message: string, history: ChatTurn[], options?: LlmCallOptions): Promise<LlmResult<string>> {
-    return this.chat(this.cfg.model, 'You are StarClaw, a governed autonomous agent. In conversation mode you cannot take actions. Be concise and helpful.', [...history.slice(-10), { role: 'user', content: message }], 500, 0.7, options);
+    return this.chat(this.cfg.model, 'You are StarClaw, a governed autonomous agent. In conversation mode you cannot take actions. Be concise and helpful.', [...history.slice(-10), { role: 'user', content: message }], Math.min(CONVERSE_MAX_TOKENS, this.maxOutputTokens), 0.7, options, 'throw-if-empty');
   }
 
   async fixCode(goal: string, code: string, error: string, options?: LlmCallOptions): Promise<LlmResult<string>> {
@@ -102,9 +132,10 @@ export class BackendLLM implements LLM {
       this.cfg.model,
       'Fix the JavaScript so it parses. Use require()/module.exports, no import/export. Output only raw code, no markdown.',
       [{ role: 'user', content: `Goal: ${goal}\nError: ${error}\nCode:\n${code}` }],
-      1500,
+      this.maxOutputTokens,
       0.1,
       options,
+      'throw',
     );
     return { ...r, value: stripFences(r.value) };
   }
@@ -144,13 +175,13 @@ export class AnthropicBackend implements ChatBackend {
     });
     if (!j || !Array.isArray(j.content)) throw new LlmError('Anthropic response has no content array', 'malformed');
     const text = j.content.filter((b: any) => b && b.type === 'text' && typeof b.text === 'string').map((b: any) => b.text).join('');
-    return { text, usage: { inputTokens: nonNegInt(j.usage?.input_tokens), outputTokens: nonNegInt(j.usage?.output_tokens) } };
+    return { text, truncated: j.stop_reason === 'max_tokens', usage: { inputTokens: nonNegInt(j.usage?.input_tokens), outputTokens: nonNegInt(j.usage?.output_tokens) } };
   }
 }
 
 /** OpenAI-style chat completions (OpenAI, OpenRouter, Ollama, LM Studio, vLLM, ...). Key optional for loopback servers. */
 export class OpenAICompatBackend implements ChatBackend {
-  readonly provider = 'openai-compat';
+  readonly provider: string = 'openai-compat';
   private readonly base: URL;
   constructor(private readonly cfg: BackendConfig) {
     this.base = assertSafeBaseUrl(cfg.baseUrl ?? 'https://api.openai.com/v1');
@@ -171,9 +202,13 @@ export class OpenAICompatBackend implements ChatBackend {
       secrets: this.cfg.apiKey ? [this.cfg.apiKey] : [],
       fetchImpl: this.cfg.fetchImpl,
     });
-    const content = j?.choices?.[0]?.message?.content;
+    const choice = j?.choices?.[0];
+    const truncated = choice?.finish_reason === 'length';
+    let content = choice?.message?.content;
+    // Reasoning models that spend the whole budget thinking return content null (or omit it) with finish_reason "length".
+    if (content == null && truncated) content = '';
     if (typeof content !== 'string') throw new LlmError('OpenAI-compatible response has no choices[0].message.content string', 'malformed');
-    return { text: content, usage: { inputTokens: nonNegInt(j.usage?.prompt_tokens), outputTokens: nonNegInt(j.usage?.completion_tokens) } };
+    return { text: content, truncated, usage: { inputTokens: nonNegInt(j.usage?.prompt_tokens), outputTokens: nonNegInt(j.usage?.completion_tokens) } };
   }
 }
 

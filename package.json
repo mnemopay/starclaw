@@ -59,7 +59,6 @@
     "commander": "^14.0.3",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "groq-sdk": "^1.1.2",
     "imapflow": "^2.12.1",
     "mailparser": "^3.14.5",
     "nodemailer": "^10.6.0",

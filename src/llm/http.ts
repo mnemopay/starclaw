@@ -3,7 +3,7 @@ import { redactString } from '../governance/canonical';
 export class LlmError extends Error {
   constructor(
     msg: string,
-    public readonly kind: 'http' | 'rate-limit' | 'malformed' | 'too-large' | 'network' | 'config',
+    public readonly kind: 'http' | 'rate-limit' | 'malformed' | 'too-large' | 'network' | 'config' | 'output-limit',
     public readonly status?: number,
     public readonly retryAfterSeconds?: number,
   ) {

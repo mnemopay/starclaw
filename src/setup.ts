@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as dotenv from 'dotenv';
 import { defaultPolicy, parsePolicy, type Policy } from './governance/policy';
 import { createLLM } from './llm/factory';
+import { GROQ_DEFAULTS } from './llm/GroqLLM';
 import { scrub } from './llm/http';
 
 /**
@@ -30,7 +31,7 @@ export interface Preset {
 }
 
 export const PRESETS: Record<PresetId, Preset> = {
-  groq: { id: 'groq', label: 'Groq', provider: 'groq', keyEnv: 'GROQ_API_KEY', keyUrl: 'https://console.groq.com/keys', fixedModel: 'llama-3.3-70b-versatile' },
+  groq: { id: 'groq', label: 'Groq', provider: 'groq', keyEnv: 'GROQ_API_KEY', keyUrl: 'https://console.groq.com/keys', fixedModel: GROQ_DEFAULTS.model },
   anthropic: { id: 'anthropic', label: 'Anthropic (Claude)', provider: 'anthropic', baseUrl: 'https://api.anthropic.com', keyEnv: 'ANTHROPIC_API_KEY', keyUrl: 'https://console.anthropic.com/settings/keys' },
   openai: { id: 'openai', label: 'OpenAI', provider: 'openai-compat', baseUrl: 'https://api.openai.com/v1', keyEnv: 'OPENAI_API_KEY', keyUrl: 'https://platform.openai.com/api-keys' },
   openrouter: { id: 'openrouter', label: 'OpenRouter', provider: 'openai-compat', baseUrl: 'https://openrouter.ai/api/v1', keyEnv: 'OPENROUTER_API_KEY', keyUrl: 'https://openrouter.ai/keys' },
