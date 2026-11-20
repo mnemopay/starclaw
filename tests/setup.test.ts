@@ -56,7 +56,7 @@ describe('guided model setup', () => {
   test('models come from the provider, sorted, deduplicated, invalid ids dropped; the key is sent', async () => {
     assert.deepEqual(await listModels('openai', GOOD, { presets: presets() }), ['alpha:7b', 'zeta-model']);
     assert.equal(seen[0].auth, `Bearer ${GOOD}`);
-    assert.deepEqual(await listModels('groq', GOOD, { presets: presets() }), ['llama-3.3-70b-versatile'], 'groq model is built in');
+    assert.deepEqual(await listModels('groq', GOOD, { presets: presets() }), ['openai/gpt-oss-120b'], 'groq model is built in');
   });
 
   test('detect: a running local server is offered with its models, a dead one is not; keys are reported by name only', async () => {

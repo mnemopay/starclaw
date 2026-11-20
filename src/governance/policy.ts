@@ -412,9 +412,11 @@ export const PolicySchema = z
           .optional(),
         maxResponseBytes: z.number().int().min(1024).max(20_000_000).default(2_000_000),
         timeoutSeconds: z.number().int().min(1).max(600).default(60),
+        /** Output-token cap for each code-generation / repair call. Too low cuts whole-file edits off mid-program. */
+        maxOutputTokens: z.number().int().min(256).max(131_072).default(8192),
       })
       .strict()
-      .default({ provider: 'groq', maxResponseBytes: 2_000_000, timeoutSeconds: 60 }),
+      .default({ provider: 'groq', maxResponseBytes: 2_000_000, timeoutSeconds: 60, maxOutputTokens: 8192 }),
     /** Web search provider for tools.search. Default: none (the tool refuses). */
     search: z
       .object({

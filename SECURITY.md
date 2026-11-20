@@ -287,7 +287,7 @@ Off by default. When enabled, one HTTP listener is bound to **127.0.0.1 only** (
 
 ## Dependencies
 `npm audit` reported 0 vulnerabilities at the time of writing (run it again). Direct dependencies: `@mnemopay/sdk`,
-`commander`, `dotenv`, `express`, `groq-sdk`, `zod`. Install scripts are not needed. The SDK is trusted for its
+`commander`, `dotenv`, `express`, `zod` (Groq is called over plain `fetch` since 2.0.0-alpha.10; `groq-sdk` was removed). Install scripts are not needed. The SDK is trusted for its
 token arithmetic only; its source was read for the units and mutability of tokens (`validateToken` returns live
 objects, so the registry is never exposed outside the Governor).
 # Hardening of multi-step execution

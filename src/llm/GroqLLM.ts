@@ -1,79 +1,42 @@
-import { reserveChat } from './reserve';
-import Groq from 'groq-sdk';
-import type { LlmUsage } from '../governance/budget';
-import { codegenSystemPrompt } from './prompts';
-import type { ChatTurn, CodegenRequest, Intent, LLM, LlmResult, LlmCallOptions } from './types';
+import { ASSUMED_PRICE, BackendLLM, OpenAICompatBackend, type BackendConfig, type Price } from './BackendLLM';
+import { LlmError } from './http';
 
 /**
- * Default price table, integer cents per million tokens. These are the maintainer's defaults and are NOT verified
- * against Groq's current price list: override via the constructor and treat budget numbers as estimates.
+ * Groq's built-in models and list prices (integer cents per million tokens), taken from Groq's model page on 2026-11-19:
+ * gpt-oss-120b $0.15 in / $0.60 out, gpt-oss-20b $0.075 in (rounded UP to 8 cents) / $0.30 out. Prices change: set
+ * llm.prices to be exact. The previous built-ins (llama-3.3-70b-versatile, llama-3.1-8b-instant) are no longer served on
+ * Groq's on-demand tier (404 model_not_found), which broke every default install.
  */
-const PRICES = {
-  big: { model: 'llama-3.3-70b-versatile', inputCentsPerMTok: 59, outputCentsPerMTok: 79 },
-  small: { model: 'llama-3.1-8b-instant', inputCentsPerMTok: 5, outputCentsPerMTok: 8 },
+export const GROQ_DEFAULTS = {
+  baseUrl: 'https://api.groq.com/openai/v1',
+  model: 'openai/gpt-oss-120b',
+  smallModel: 'openai/gpt-oss-20b',
+  prices: {
+    'openai/gpt-oss-120b': { inputCentsPerMTok: 15, outputCentsPerMTok: 60 },
+    'openai/gpt-oss-20b': { inputCentsPerMTok: 8, outputCentsPerMTok: 30 },
+  } as Record<string, Price>,
 };
 
-function stripFences(s: string): string {
-  return s.replace(/```(?:javascript|typescript|js|ts)?/g, '').trim();
+export type GroqOptions = Partial<Omit<BackendConfig, 'apiKey'>>;
+
+/**
+ * Groq over its OpenAI-compatible endpoint. llm.model / llm.smallModel / llm.prices override the built-ins exactly as
+ * for the other providers; a model without a known or configured price uses the conservative placeholder.
+ */
+export class GroqLLM extends BackendLLM {
+  constructor(apiKey = process.env.GROQ_API_KEY, opts: GroqOptions = {}) {
+    if (!apiKey) throw new LlmError('GROQ_API_KEY is not set. Set it in the environment or a .env file to use the Groq backend.', 'config');
+    const model = opts.model || GROQ_DEFAULTS.model;
+    // A custom big model with no smallModel classifies with the same model, so its price applies to both.
+    const smallModel = opts.smallModel ?? (opts.model ? undefined : GROQ_DEFAULTS.smallModel);
+    const price = opts.price ?? GROQ_DEFAULTS.prices[model];
+    // An unknown small model is costed at the placeholder, never at the (cheaper) big-model price.
+    const smallPrice = smallModel ? (opts.price ?? GROQ_DEFAULTS.prices[smallModel] ?? ASSUMED_PRICE) : undefined;
+    const cfg: BackendConfig = { ...opts, apiKey, model, smallModel, price, smallPrice, baseUrl: opts.baseUrl ?? GROQ_DEFAULTS.baseUrl };
+    super(new GroqBackend(cfg), cfg);
+  }
 }
 
-export class GroqLLM implements LLM {
-  private groq: Groq;
-  constructor(apiKey = process.env.GROQ_API_KEY) {
-    if (!apiKey) throw new Error('GROQ_API_KEY is not set. Set it in the environment or a .env file to use the Groq backend.');
-    this.groq = new Groq({ apiKey, maxRetries: 0, timeout: 60_000 }); // One reservation covers one dispatch; recovery is governed by the engine.
-  }
-
-  private async chat(tier: 'big' | 'small', messages: any[], maxTokens: number, temperature: number, options?: LlmCallOptions): Promise<LlmResult<string>> {
-    const p = PRICES[tier];
-    const reservation = reserveChat(options, messages, maxTokens, p);
-    const r = await this.groq.chat.completions.create({ model: p.model, max_tokens: reservation.maxTokens, temperature, messages });
-    if (!r.usage || !Number.isSafeInteger(r.usage.prompt_tokens) || !Number.isSafeInteger(r.usage.completion_tokens) || r.usage.prompt_tokens < 0 || r.usage.completion_tokens < 0) throw new Error('Groq returned missing or invalid usage; reservation retained');
-    const usage: LlmUsage = { inputTokens: r.usage?.prompt_tokens ?? 0, outputTokens: r.usage?.completion_tokens ?? 0 };
-    reservation.settle(usage);
-    return { prepaid: reservation.prepaid, value: r.choices[0]?.message?.content ?? '', usage, price: p };
-  }
-
-  async classifyIntent(goal: string, options?: LlmCallOptions): Promise<LlmResult<Intent>> {
-    const r = await this.chat(
-      'small',
-      [
-        { role: 'system', content: 'Classify the user message as "conversation" (chat, greetings, questions needing no action) or "task" (anything needing files, web, code or commands). Reply with exactly one word.' },
-        { role: 'user', content: goal },
-      ],
-      10,
-      0.1,
-      options,
-    );
-    return { ...r, value: r.value.toLowerCase().includes('conversation') ? 'conversation' : 'task' };
-  }
-
-  async generateCode(req: CodegenRequest, options?: LlmCallOptions): Promise<LlmResult<string>> {
-    const messages: any[] = [{ role: 'system', content: codegenSystemPrompt(req.memoryContext, req.tainted, req.subagent) }];
-    for (const h of req.history.slice(-10)) messages.push({ role: h.role, content: h.content });
-    messages.push({ role: 'user', content: `Goal: ${req.goal}\n\nWrite the code.` });
-    const r = await this.chat('big', messages, 1500, 0.2, options);
-    return { ...r, value: stripFences(r.value) };
-  }
-
-  async converse(message: string, history: ChatTurn[], options?: LlmCallOptions): Promise<LlmResult<string>> {
-    const messages: any[] = [{ role: 'system', content: 'You are StarClaw, a governed autonomous agent. In conversation mode you cannot take actions. Be concise and helpful.' }];
-    for (const h of history.slice(-10)) messages.push({ role: h.role, content: h.content });
-    messages.push({ role: 'user', content: message });
-    return this.chat('big', messages, 500, 0.7, options);
-  }
-
-  async fixCode(goal: string, code: string, error: string, options?: LlmCallOptions): Promise<LlmResult<string>> {
-    const r = await this.chat(
-      'big',
-      [
-        { role: 'system', content: 'Fix the JavaScript so it parses. Use require()/module.exports, no import/export. Output only raw code, no markdown.' },
-        { role: 'user', content: `Goal: ${goal}\nError: ${error}\nCode:\n${code}` },
-      ],
-      1500,
-      0.1,
-      options,
-    );
-    return { ...r, value: stripFences(r.value) };
-  }
+class GroqBackend extends OpenAICompatBackend {
+  override readonly provider = 'groq';
 }
