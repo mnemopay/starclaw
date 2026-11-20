@@ -1,3 +1,0 @@
-exported 61 events (log verified; key pinned)
-bundle sha256 678e073eb827039c356a5958332f34e9edd800f087ef76a9e11234849b660a4b
-recomputed from signed-log/article12 file bytes

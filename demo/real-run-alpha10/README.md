@@ -58,15 +58,18 @@ Checks run by the operator, not the agent (`agent-patch.diff` is the exact chang
 * `tsc --noEmit`: clean (`tsc.txt`). `npm run build`: clean (`build.txt`), so this time `dist/` exists.
 * The agent's test **against the unpatched source**: `1 failed | 13 passed` (`expected true to be false`;
   `targeted-before.txt`). **With the patch**: `14 passed` (`targeted-after.txt`). The test catches the bug.
-* Full SDK suite without `tests/stress/**`: **88 files passed, 1 skipped; 1423 tests passed, 3 skipped, 0 failed** (`full-suite-nostress.txt`).
+* Full SDK suite on the patched, built tree: **1454 passed, 3 skipped, 0 failed** (97 files; 2070 s, stress tests
+  included; `full-suite-complete.txt`). That is alpha.9's 1448 passed + its 4 dist-dependent failures (dist now
+  built) + the agent's 2 new tests. A second run without `tests/stress/**` while other agents loaded the laptop:
+  1423 passed, 3 skipped, 0 failed (`full-suite-nostress.txt`).
 * Signed log: `OK: 61 records verified (chain, signatures, head checkpoint); key pinned` (`verify.txt`).
   Flipping `"allowed":true` to `false` in the human approval of the source write (line 47) gives
   `line 47: hash mismatch: record content was modified` (`tamper-verify.txt`).
 * Article 12 export with the pinned key: 61 events, bundle sha256 `a6c098e9…` (`export.txt`, `signed-log/article12/`).
 
-Stress tests: in a first full-suite run, `stress-300k/500k/1m` failed only on `expect(p99).toBeLessThan(500)`
-(p99 670-800 ms on a heavily loaded 8 GB laptop running other agents) and took ~30 minutes, so that run was cut off
-by a timeout. Those files never import the audit chain. The suite was re-run without `tests/stress/**`.
+Stress tests: in a third run, made while the laptop was heavily loaded, `stress-300k/500k/1m` failed only on
+`expect(p99).toBeLessThan(500)` (p99 670-800 ms), and the run was cut off by a timeout (`stress-run-cut-off.txt`).
+Those files never import the audit chain, and they passed in the complete run above, so this is load, not the patch.
 
 ## StarClaw findings from this run (not fixed here)
 

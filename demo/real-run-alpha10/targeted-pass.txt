@@ -1,6 +1,0 @@
- RUN  v2.1.9 C:/Users/bizsu/Projects/starclaw-demo-run10/openrouter/workspace/mnemopay-sdk
- ✓ tests/audit-chain.test.ts (14 tests) 119ms
- Test Files  1 passed (1)
-      Tests  14 passed (14)
-   Start at  21:59:32
-   Duration  2.61s (transform 331ms, setup 0ms, collect 330ms, tests 119ms, environment 1ms, prepare 587ms)

@@ -1,5 +1,0 @@
-
-> @mnemopay/sdk@1.17.0 build
-> node scripts/clean-dist.mjs && tsc
-
-build exit 0

@@ -1,5 +1,0 @@
-FAILED: 2 problem(s)
-  line 10: hash mismatch: record content was modified
-  line 0: head checkpoint C:/Users/bizsu/AppData/Local/Temp/starclaw-tampered.jsonl.head is missing: tail truncation cannot be ruled out
-
-EXIT 1

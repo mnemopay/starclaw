@@ -1,2 +1,0 @@
-OK: 14 records verified (chain, signatures, head checkpoint); key pinned
-EXIT 0
