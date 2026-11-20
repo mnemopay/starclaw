@@ -1,0 +1,2 @@
+exported 155 events to article12/ (log verified; key pinned)
+bundle sha256 d74225151b0e30b5a753bbda1802a1eaa4827e38405a2a6e31353de054388cbb

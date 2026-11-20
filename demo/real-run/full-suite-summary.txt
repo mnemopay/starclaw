@@ -1,0 +1,14 @@
+Full @mnemopay/sdk suite (npx vitest run) on the agent-patched tree, 2026-11-20, 1970 s:
+      Tests  4 failed | 1448 passed | 3 skipped (1455)
+ Test Files  2 failed | 95 passed | 1 skipped (98)
+
+The 4 failures (all need dist/, i.e. a built package; this clone was never built):
+ FAIL  tests/no-side-effect-on-root-import.test.ts > root-import side effects (subprocess) > dist/index.js: importing the SDK root emits NO stderr and starts no server
+ FAIL  tests/no-side-effect-on-root-import.test.ts > root-import side effects (subprocess) > dist/index.js: subprocess exits promptly (no lingering MCP transport)
+ FAIL  tests/no-side-effect-on-root-import.test.ts > root-import side effects (subprocess) > package root: CommonJS require resolves through package exports
+ FAIL  tests/process-exit.test.ts > process lifecycle > a persistent agent does not keep the process alive
+
+Same two files on the UNPATCHED tree (git stash), same clone:
+      Tests  4 failed (4)
+ Test Files  2 failed (2)
+Error: Cannot find module 'C:\Users\bizsu\Projects\starclaw-demo-run\workspace\mnemopay-sdk\dist\index.js'

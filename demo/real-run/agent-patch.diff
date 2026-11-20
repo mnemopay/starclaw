@@ -1,0 +1,19 @@
+diff --git a/src/governance/audit-chain.ts b/src/governance/audit-chain.ts
+index 5616250..2d5e11e 100644
+--- a/src/governance/audit-chain.ts
++++ b/src/governance/audit-chain.ts
+@@ -242,6 +242,14 @@ export function verifyBundle(
+   }
+   if (layer[0] !== bundle.merkle_root) return { ok: false, reason: "root_mismatch" };
+ 
++  // Odd layers are padded by repeating the last node, so a duplicated last event
++  // yields the same root. AuditChain sequences are consecutive: reject any gap/repeat.
++  for (let i = 1; i < bundle.events.length; i++) {
++    if (bundle.events[i]!.sequence !== bundle.events[i - 1]!.sequence + 1) {
++      return { ok: false, reason: "root_mismatch", index: i };
++    }
++  }
++
+   if (options.verifyEventSignature) {
+     for (let i = 0; i < bundle.events.length; i++) {
+       const ev = bundle.events[i]!;
