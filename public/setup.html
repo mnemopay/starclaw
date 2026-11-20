@@ -113,16 +113,24 @@
     state.presets = s.presets;
     var box = $('presets'); box.textContent = '';
     var found = {}; s.detected.local.forEach(function (d) { found[d.id] = d.models.length; });
-    var order = s.presets.slice().sort(function (a, b) { return (found[b.id] ? 1 : 0) - (found[a.id] ? 1 : 0); });
+    var rec = s.recommended || null;
+    // The recommendation (something you already have, strongest for code first) goes on top.
+    var order = s.presets.slice().sort(function (a, b) {
+      var ra = rec && a.id === rec.id ? 2 : 0, rb = rec && b.id === rec.id ? 2 : 0;
+      return (rb + (found[b.id] ? 1 : 0)) - (ra + (found[a.id] ? 1 : 0));
+    });
     order.forEach(function (p) {
       if (p.local && !found[p.id]) return; // only offer local servers that are running
       var l = document.createElement('label'); l.className = 'opt';
       var r = document.createElement('input'); r.type = 'radio'; r.name = 'preset'; r.onchange = function () { choose(p); };
       var t = document.createElement('div'); t.textContent = p.label;
       var note = document.createElement('div'); note.className = 'tag';
-      if (found[p.id]) note.textContent = 'Found on this PC: ' + found[p.id] + ' model(s), free and private';
+      if (rec && p.id === rec.id) note.textContent = (rec.preselect ? 'Recommended: ' : 'Suggested: ') + rec.reason;
+      else if (found[p.id]) note.textContent = 'Found on this PC: ' + found[p.id] + ' model(s), free and private';
       else if (p.keySaved) note.textContent = 'Key already saved';
+      else if (p.id === 'groq') note.textContent = 'Free key; fast, weaker at multi-step code changes';
       t.appendChild(note); l.appendChild(r); l.appendChild(t); box.appendChild(l);
+      if (rec && rec.preselect && p.id === rec.id) { r.checked = true; choose(p); }
     });
   }).catch(showError);
 })();

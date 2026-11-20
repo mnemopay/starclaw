@@ -2,6 +2,8 @@
  * Core vocabulary of the Governor. Everything the agent can do that touches the
  * outside world is expressed as an Action of one of these classes.
  */
+import { createHash } from 'node:crypto';
+
 export const ACTION_CLASSES = [
   'exec',
   'fs.read',
@@ -183,8 +185,23 @@ export function describeRequest(req: ApprovalRequest): string {
   }
   lines.push(`Why asked: ${req.reason}${req.escalatedByTaint ? ' (policy would have allowed this; escalated because the session is tainted)' : ''}`);
   if (a.detail) {
-    const d = a.detail.length > 3000 ? a.detail.slice(0, 3000) + `\n... [${a.detail.length - 3000} more chars not shown]` : a.detail;
+    // The hash is of the FULL payload and is what the audit log records for this decision, so a preview cut for
+    // display can never be the only thing that was approved.
+    const sha = detailSha256(a.detail);
+    lines.push(`Payload: ${a.detail.length} chars, sha256 ${sha}`);
+    const hidden = a.detail.length - DETAIL_PREVIEW_CHARS;
+    const d = hidden > 0
+      ? a.detail.slice(0, DETAIL_PREVIEW_CHARS) + `\n... [${hidden} more chars HIDDEN here. The full payload (sha256 ${sha}) is the "detail" field of GET /api/approvals and is recorded in the audit log. Deny if you have not seen all of it.]`
+      : a.detail;
     lines.push('--- exact payload ---', d, '--- end payload ---');
   }
   return lines.join('\n');
+}
+
+/** How much of an action's payload the plain-text approval shows. Longer payloads are cut with an explicit HIDDEN notice. */
+export const DETAIL_PREVIEW_CHARS = 20_000;
+
+/** SHA-256 (hex) of the full payload, as shown to the approver and recorded in the audit log. */
+export function detailSha256(detail: string): string {
+  return createHash('sha256').update(detail, 'utf8').digest('hex');
 }

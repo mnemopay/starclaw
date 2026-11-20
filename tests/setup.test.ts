@@ -8,7 +8,7 @@ import * as dotenv from 'dotenv';
 import { HttpApprover } from '../src/channels/http';
 import { parsePolicy } from '../src/governance/policy';
 import { startApp } from '../src/app';
-import { detect, listModels, PRESETS, saveSetup, setEnvVar, testModel, type Preset, type PresetId } from '../src/setup';
+import { detect, listModels, PRESETS, recommendPreset, saveSetup, setEnvVar, testModel, type Preset, type PresetId } from '../src/setup';
 import { rm, tmpDir } from './helpers';
 
 const GOOD = 'sk-test-good-key-123456';
@@ -134,5 +134,35 @@ describe('guided model setup', () => {
     } finally {
       await a.close();
     }
+  });
+});
+
+
+describe('setup prefers what you already have; Groq is only the free fallback (alpha.11)', () => {
+  const none = { local: [], keysPresent: [] as PresetId[] };
+  const ollama = { id: 'ollama' as PresetId, label: 'Ollama (on this PC)', models: ['qwen2.5-coder:7b'] };
+  test('order: Anthropic > OpenRouter > OpenAI keys > running local model > existing Groq key > suggested Groq', () => {
+    assert.deepEqual(recommendPreset({ local: [ollama], keysPresent: ['groq', 'openai', 'openrouter', 'anthropic'] }).id, 'anthropic');
+    assert.equal(recommendPreset({ local: [ollama], keysPresent: ['groq', 'openai', 'openrouter'] }).id, 'openrouter');
+    assert.equal(recommendPreset({ local: [ollama], keysPresent: ['groq', 'openai'] }).id, 'openai');
+    assert.equal(recommendPreset({ local: [ollama], keysPresent: ['groq'] }).id, 'ollama');
+    const g = recommendPreset({ local: [], keysPresent: ['groq'] });
+    assert.deepEqual([g.id, g.preselect], ['groq', true]);
+  });
+  test('nothing found: Groq is SUGGESTED (free), never preselected', () => {
+    const r = recommendPreset(none);
+    assert.equal(r.id, 'groq');
+    assert.equal(r.preselect, false);
+    assert.match(r.reason, /free/);
+  });
+  test('keys saved in the StarClaw home .env count the same as environment keys', () => {
+    assert.equal(recommendPreset(none, ['anthropic']).id, 'anthropic');
+    assert.equal(recommendPreset(none, ['openrouter']).preselect, true);
+  });
+  test('a local server with no models is not recommended', () => {
+    assert.equal(recommendPreset({ local: [{ ...ollama, models: [] }], keysPresent: [] }).preselect, false);
+  });
+  test('the policy schema default is still provider "groq" (existing policies keep working)', () => {
+    assert.equal(parsePolicy('{"version":1}').llm.provider, 'groq');
   });
 });
