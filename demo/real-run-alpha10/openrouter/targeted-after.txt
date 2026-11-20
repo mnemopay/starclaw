@@ -1,0 +1,11 @@
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 C:/Users/bizsu/Projects/starclaw-demo-run10/openrouter/workspace/mnemopay-sdk
+
+ ✓ tests/audit-chain.test.ts (14 tests) 99ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  00:02:36
+   Duration  2.13s (transform 242ms, setup 0ms, collect 225ms, tests 99ms, environment 1ms, prepare 470ms)
+

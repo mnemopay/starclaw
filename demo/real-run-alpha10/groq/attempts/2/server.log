@@ -1,0 +1,1 @@
+starclaw-server: http://127.0.0.1:3123 (bearer auth required for /api)

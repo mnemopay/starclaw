@@ -1,54 +1,92 @@
-# A real StarClaw run on alpha.10 (2026-11-19/20)
+# The same real run, on StarClaw 2.0.0-alpha.10 (2026-11-20)
 
-Same bug and same SDK commit as `demo/real-run` (alpha.9). This directory is a second run on `starclaw@2.0.0-alpha.10`. The model calls were not repeated after the fact. Nothing here was edited to look better.
+A re-run of [`../real-run/`](../real-run/README.md) (alpha.9) after the alpha.10 fixes (current Groq
+defaults, `llm.maxOutputTokens` default 8192, clear output-limit errors). Same repo, same bug, the **original**
+goal text (`goal.txt` = alpha.9's `goal-v1`, without the "work in small steps" workaround alpha.9 needed),
+run once on each provider. Every attempt is in `*/attempts/`; nothing was retried silently.
 
 | | |
 |---|---|
-| Repo | `mnemopay/mnemopay-sdk` at `5366c69` (v1.17.0). The clone stayed in the run directory and is not in this commit. |
-| Bug | `verifyBundle()` accepts a bundle whose last event is duplicated when the event count is odd. The Merkle tree pads an odd layer by repeating the last leaf, so the root does not change. |
-| StarClaw | `starclaw@2.0.0-alpha.10` from npm. Not published again for this demo. |
-| Sandbox | process layer only. Docker was not used. |
-| Approver | the operator, **Claude acting for the maintainer**, through `decisions.json`. Not the maintainer. This package was assembled afterward by Grok from those artifacts. |
+| Repo | `mnemopay/mnemopay-sdk` at `5366c69` (v1.17.0), fresh clone from GitHub per provider |
+| Bug | `verifyBundle()` accepts a bundle whose last event is duplicated when the event count is odd (Merkle padding repeats the last leaf, so the root is unchanged) |
+| StarClaw | `2.0.0-alpha.10`, packed from the `v2.0.0-alpha.10` tag (npm still had alpha.9; nothing was published) and driven through `starclaw-server`'s HTTP API (`runner.mjs`, unchanged from alpha.9) |
+| Sandbox | process layer only; Docker was deliberately not started |
+| Approver | the operator: **Claude acting for the maintainer**, deciding each request through `POST /api/approvals/:id` (`decide.sh`). Not the maintainer himself. |
 
-## Against the alpha.9 run
+## alpha.9 vs alpha.10
 
-Alpha.9 (`demo/real-run`) used 7 attempts. The agent wrote a source fix and did not add the test. Its own cost ceilings summed to 36 cents. The fix reused the existing `root_mismatch` reason.
+| | alpha.9 (`../real-run`) | alpha.10, default Groq | alpha.10, OpenRouter Sonnet 5.5 |
+|---|---|---|---|
+| Attempts | 7 (goal rewritten once, then a follow-up goal) | 2, both failed identically | **1** |
+| Source fix written | yes (attempt 6) | no | **yes** |
+| Test written | never | no | **yes, in the same step** |
+| Approvals | 9 approve, 0 deny | none reached | 4 approve, 1 deny |
+| LLM cost (StarClaw's ceiling) | 36 cents | 1 + 1 cents | 10 cents |
 
-Alpha.10 used 3 attempts. Cost ceilings: 1 + 1 + 10 cents.
+## Default Groq (`groq/`)
 
-| # | Setup | What happened |
-|---|---|---|
-| 1 | default `llm.provider: groq` (alpha.10's built-in Groq models; the policy does not name one) | Failed before any work. Groq HTTP 400 `tool_use_failed`: "Tool choice is none, but model called a tool". Job `036718e4-27ea-4757-8541-bec586df46ae`. `llmCostCentsCeil` 1. Not tainted. |
-| 2 | same Groq default, run again | Same failure before any work. Job `50266c39-db79-44ea-af43-a65b7c8a4502`. Ceiling 1 cent. |
-| 3 | OpenRouter, `anthropic/claude-sonnet-5.5` | Wrote the source fix and the test (`agent-patch.diff`). Four steps were approved. The operator then denied a Docker test step. Job `8ca53ed7-f21d-4fd8-a91b-897376c5e33a` ended `success: false`, error "Denied (human): denied by approver", tainted, ceiling 10 cents. |
+`llm: { "provider": "groq" }`, so alpha.10's new defaults (`openai/gpt-oss-120b` / `openai/gpt-oss-20b`).
+**Both attempts failed before any step**, with the same Groq error:
 
-The default Groq provider no longer dies with `model_not_found` the way alpha.9's first attempt did. It still cannot complete a goal: both runs died on `tool_use_failed` before a file was read.
-
-## What the patch does
-
-`agent-patch.diff` adds a sequence check after the Merkle root check. If `sequence` is not consecutive from the first event, `verifyBundle` returns `{ ok: false, reason: "sequence_mismatch", index }`. The root computation is unchanged. The new test is `verifyBundle duplicated-last-event tampering` in `tests/audit-chain.test.ts`.
-
-Operator checks after that patch, on the same tree:
-
-* `tsc --noEmit` exited 0 (`tsc.txt`).
-* `npm run build` exited 0 (`build.txt`). Alpha.9's suite never had a `dist/`.
-* The first `vitest` of `tests/audit-chain.test.ts` failed before any test: npm's optional dependency `@rollup/rollup-win32-x64-msvc` was missing (`targeted-after.txt`). After `npm install @rollup/rollup-win32-x64-msvc --no-save` in the SDK workspace, the same file passed 14/14 (`targeted-pass.txt`, 21:59:32 local).
-
-The full SDK suite then passed: 1454 passed, 3 skipped, 0 failed, in 2070.62s (`full-suite-summary.txt`, process exit 0). Alpha.9's 4 failures were the unbuilt `dist/` tests; this tree was built first, and the patch added 2 tests.
-
-## Signed logs
-
-The two providers used two audit keys. Both logs verify offline.
-
-```bash
-npx starclaw audit verify demo/real-run-alpha10/signed-log/audit.jsonl --pubkey-file demo/real-run-alpha10/signed-log/audit.pub
-# OK: 61 records verified (chain, signatures, head checkpoint); key pinned
+```
+HTTP 400 tool_use_failed: "Tool choice is none, but model called a tool"
+failed_generation: {"name": "tools.listDir", "arguments": {"path": "./mnemopay-sdk"}}
 ```
 
-That 61-record log is the OpenRouter attempt (`verify.txt`). Flipping `"allowed":true` to `false` on line 10 and verifying the copy fails with `line 10: hash mismatch: record content was modified` (`tamper-verify.txt`). The tamper check also warns that the `.head` file was not copied beside the tampered log, so tail truncation cannot be ruled out on that copy. The original log was not modified.
+gpt-oss reads the prompt's `tools.listDir(...)` API and emits a *native* tool call instead of a JavaScript
+program; Groq rejects it because the request sends no tools. alpha.9's attempt 2 hit the same thing with
+`gpt-oss-120b` set by hand. So alpha.10 fixed the 404 (retired models) but **the default Groq configuration still
+cannot complete an agent job**: a new user who picks Groq in setup fails on the first goal.
+The signed log for both attempts verifies (`groq/verify.txt`: 14 records).
 
-`signed-log/article12/` is the Article 12 export of the OpenRouter log (`export.txt`). Recomputed from those file bytes, the bundle sha256 is `678e073eb827039c356a5958332f34e9edd800f087ef76a9e11234849b660a4b`. The manifest's audit digest is `47877f7319958705c81bfb515d907f2f0bdefb117c69b99a696a90676168c0dc`. `mission.json` records LLM spend of `$0.096774` from `llm.usage` microcents in this log (the 10 cent ceiling is the job's cap, not this sum).
+## OpenRouter, Claude Sonnet 5.5 (`openrouter/`)
 
-The Groq attempts are a separate 14-record log, different public key (`signed-log/groq/`, `verify-groq.txt`).
+Same policy as alpha.9's final attempts (`attempts/1/starclaw.policy.json`).
 
-The private keys, `keys.sh`, `node_modules`, and the SDK workspace are not in this commit.
+1. **exec** (read the two files): approved.
+2. **exec** (one 4,491-char program doing both edits): approved. See the truncation finding below.
+3. **fs.write** `src/governance/audit-chain.ts`: approved. +12/-1: a new `sequence_mismatch` reason and a check,
+   after the unchanged root check, that event `sequence` numbers are consecutive.
+4. **fs.write** `tests/audit-chain.test.ts`: approved. +30: one test that a duplicated-last-event bundle has the
+   *same root* and is now rejected with `sequence_mismatch`, one that untampered bundles of 1, 2, 3, 4, 5, 7 events
+   and a custom `sequence_start` still verify.
+5. **shell.exec** (run vitest in the container): **denied**, because Docker was intentionally off. A denial ends the
+   job by design, so the job reports `success: false`; both files were already written.
+
+Checks run by the operator, not the agent (`agent-patch.diff` is the exact change):
+
+* `tsc --noEmit`: clean (`tsc.txt`). `npm run build`: clean (`build.txt`), so this time `dist/` exists.
+* The agent's test **against the unpatched source**: `1 failed | 13 passed` (`expected true to be false`;
+  `targeted-before.txt`). **With the patch**: `14 passed` (`targeted-after.txt`). The test catches the bug.
+* Full SDK suite without `tests/stress/**`: **88 files passed, 1 skipped; 1423 tests passed, 3 skipped, 0 failed** (`full-suite-nostress.txt`).
+* Signed log: `OK: 61 records verified (chain, signatures, head checkpoint); key pinned` (`verify.txt`).
+  Flipping `"allowed":true` to `false` in the human approval of the source write (line 47) gives
+  `line 47: hash mismatch: record content was modified` (`tamper-verify.txt`).
+* Article 12 export with the pinned key: 61 events, bundle sha256 `a6c098e9…` (`export.txt`, `signed-log/article12/`).
+
+Stress tests: in a first full-suite run, `stress-300k/500k/1m` failed only on `expect(p99).toBeLessThan(500)`
+(p99 670-800 ms on a heavily loaded 8 GB laptop running other agents) and took ~30 minutes, so that run was cut off
+by a timeout. Those files never import the audit chain. The suite was re-run without `tests/stress/**`.
+
+## StarClaw findings from this run (not fixed here)
+
+1. **Default Groq still fails** (above): gpt-oss emits native tool calls and Groq returns 400. Either send a
+   system message that forbids tool calls / handle `tool_use_failed`, or pick a default Groq model that follows the
+   program format.
+2. **Approval text is cut at 3,000 characters** (`dist/governance/types.js`: `... [N more chars not shown]`).
+   The approver saw only the first 3,000 of the 4,491-char program in step 2. Alpha.10's larger output cap makes
+   programs longer, so this now matters.
+3. **Whole-file writes show the start of the file, not a diff.** Steps 3 and 4 used `writeFile`; each approval
+   showed the first 3,000 bytes of the new file, so the actual change (near the end) was not visible on the
+   approval screen. The operator approved step 3 because the exact edit was visible in the step 2 program,
+   and checked both writes with `git diff` right after approving. alpha.9's `editFile` path did show a diff.
+   Approval screens should show a diff for `fs.write` when the file already exists.
+4. Denying a single step ends the whole job. That is safe, but the agent cannot continue after "no, don't run
+   that", for example to skip running tests.
+
+## Reproduce
+
+```bash
+npx starclaw audit verify demo/real-run-alpha10/openrouter/signed-log/audit.jsonl \
+  --pubkey-file demo/real-run-alpha10/openrouter/signed-log/audit.pub
+```

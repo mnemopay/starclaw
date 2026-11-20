@@ -1,0 +1,5 @@
+  │ Feature                              │ Months │ Tests │ Who Has It?       │
+  │ Production Stress Tests (1000-cycle) │   1    │   32  │ Nobody           │
+ Test Files  88 passed | 1 skipped (89)
+      Tests  1423 passed | 3 skipped (1426)
+   Duration  126.46s (transform 9.33s, setup 0ms, collect 81.17s, tests 258.74s, environment 93ms, prepare 39.26s)

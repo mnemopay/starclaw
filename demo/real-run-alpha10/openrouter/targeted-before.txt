@@ -1,0 +1,34 @@
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 C:/Users/bizsu/Projects/starclaw-demo-run10/openrouter/workspace/mnemopay-sdk
+
+ ❯ tests/audit-chain.test.ts (14 tests | 1 failed) 485ms
+   × verifyBundle duplicated-last-event tampering > rejects a bundle whose last event was duplicated (odd count) 303ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/audit-chain.test.ts > verifyBundle duplicated-last-event tampering > rejects a bundle whose last event was duplicated (odd count)
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/audit-chain.test.ts:190:23
+    188|     expect(tampered.merkle_root).toBe(bundle.merkle_root);
+    189|     const result = verifyBundle(tampered);
+    190|     expect(result.ok).toBe(false);
+       |                       ^
+    191|     if (!result.ok) expect(result.reason).toBe("sequence_mismatch");
+    192|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+   Start at  00:02:53
+   Duration  4.19s (transform 335ms, setup 0ms, collect 477ms, tests 485ms, environment 1ms, prepare 621ms)
+
