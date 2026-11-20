@@ -1,0 +1,17 @@
+[
+  {
+    "id": "285907ad-f9f4-4537-b429-ff2af5406a1a",
+    "class": "memory.write",
+    "target": "memory.db",
+    "summary": "Remember: Completed: The repository in ./mnemopay-sdk is the @mnemopay/sdk TypeScript package. Known bug: verifyBundle() in mnemopay-sdk/src/governance/audit-chain.ts accepts a tampered bundle in which the last event has been duplicated (appended a second time) when the original event count is odd. The cause is that the\nOutcome (untrusted data): {\"success\":false,\"reason\":\"verifyBundle not found\"}",
+    "tainted": true,
+    "taintSources": [
+      "tainted-file: C:\\Users\\bizsu\\Projects\\starclaw-demo-run11\\groq\\workspace\\mnemopay-sdk\\src\\governance\\audit-chain.ts"
+    ],
+    "escalatedByTaint": false,
+    "expiresAt": 1795176830035,
+    "description": "APPROVAL REQUEST 285907ad-f9f4-4537-b429-ff2af5406a1a\nAction : memory.write\nTarget : memory.db\nSummary: Remember: Completed: The repository in ./mnemopay-sdk is the @mnemopay/sdk TypeScript package. Known bug: verifyBundle() in mnemopay-sdk/src/governance/audit-chain.ts accepts a tampered bundle in which the last event has been duplicated (appended a second time) when the original event count is odd. The cause is that the\nOutcome (untrusted data): {\"success\":false,\"reason\":\"verifyBundle not found\"}\nProvenance: TAINTED - untrusted content is in this session's context\n  - tainted-file: C:\\Users\\bizsu\\Projects\\starclaw-demo-run11\\groq\\workspace\\mnemopay-sdk\\src\\governance\\audit-chain.ts\nWhy asked: policy default for memory.write is \"ask\"\nPayload: 389 chars, sha256 82289ae671d8fc1b43312ff4c8baa3fe3820253d3f562a5621e77f1a67b96104\n--- exact payload ---\nCompleted: The repository in ./mnemopay-sdk is the @mnemopay/sdk TypeScript package. Known bug: verifyBundle() in mnemopay-sdk/src/governance/audit-chain.ts accepts a tampered bundle in which the last event has been duplicated (appended a second time) when the original event count is odd. The cause is that the\nOutcome (untrusted data): {\"success\":false,\"reason\":\"verifyBundle not found\"}\n--- end payload ---",
+    "detail": "Completed: The repository in ./mnemopay-sdk is the @mnemopay/sdk TypeScript package. Known bug: verifyBundle() in mnemopay-sdk/src/governance/audit-chain.ts accepts a tampered bundle in which the last event has been duplicated (appended a second time) when the original event count is odd. The cause is that the\nOutcome (untrusted data): {\"success\":false,\"reason\":\"verifyBundle not found\"}",
+    "detailSha256": "82289ae671d8fc1b43312ff4c8baa3fe3820253d3f562a5621e77f1a67b96104"
+  }
+]

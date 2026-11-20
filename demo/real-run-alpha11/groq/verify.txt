@@ -1,0 +1,1 @@
+OK: 36 records verified (chain, signatures, head checkpoint); key pinned
