@@ -171,6 +171,17 @@ export class Broker {
     }
   }
 
+  /**
+   * Where a workspace path points, without reading or authorizing anything: used by the engine's read-before-edit rule.
+   * `key` is the normalized real path; `exists` is true only for an existing regular file.
+   */
+  fileIdentity(rawPath: string): { key: string; real: string; exists: boolean } {
+    const real = realResolve(path.resolve(this.workspace, rawPath));
+    let exists = false;
+    try { exists = fs.lstatSync(real).isFile(); } catch { /* missing: a new file */ }
+    return { key: norm(real), real, exists };
+  }
+
   async handle(call: BrokerCall): Promise<unknown> {
     const scope = this.o.scope;
     if (scope && !scope.tools.includes(call.name)) {

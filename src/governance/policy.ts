@@ -307,7 +307,22 @@ export const PolicySchema = z
   .object({
     version: z.literal(1),
     workspace: z.string().min(1).default('./workspace'),
-    agent: z.object({ maxSteps: z.number().int().min(1).max(12).default(4), maxRuntimeRetries: z.number().int().min(0).max(2).default(1), maxSeconds: z.number().int().min(1).max(3600).default(300) }).strict().default({ maxSteps: 4, maxRuntimeRetries: 1, maxSeconds: 300 }),
+    agent: z
+      .object({
+        maxSteps: z.number().int().min(1).max(12).default(4),
+        maxRuntimeRetries: z.number().int().min(0).max(2).default(1),
+        maxSeconds: z.number().int().min(1).max(3600).default(300),
+        /** Refuse writeFile/editFile/applyPatch on an EXISTING file the job has not read with tools.readFile (nothing is written; the model is told to read first). */
+        requireReadBeforeEdit: z.boolean().default(true),
+        /**
+         * OPT-IN. Default false: a denied step ends the job (the safe behaviour). When true, a denial is returned to the
+         * model as feedback and the job may replan within maxSteps; the identical action (same payload hash) is never
+         * proposed to a human again in that job, and every new action still goes through approval.
+         */
+        continueAfterDeny: z.boolean().default(false),
+      })
+      .strict()
+      .default({ maxSteps: 4, maxRuntimeRetries: 1, maxSeconds: 300, requireReadBeforeEdit: true, continueAfterDeny: false }),
     approvalTimeoutSeconds: z.number().int().min(5).max(3600).default(120),
     defaults: z
       .object({

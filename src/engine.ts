@@ -77,6 +77,18 @@ export interface BootReport {
 
 const MAX_FIX_ATTEMPTS = 2;
 
+/**
+ * A program that ran to completion but returned `{ success: false }` or `{ ok: false }` did not achieve the goal.
+ * Returns a short reason, or undefined when the value does not report failure.
+ */
+export function programReportedFailure(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const v = value as Record<string, unknown>;
+  if (v.success !== false && v.ok !== false) return undefined;
+  const why = [v.error, v.reason, v.message].find((x) => typeof x === 'string' && x.trim());
+  return (typeof why === 'string' ? why : v.success === false ? 'success: false' : 'ok: false').slice(0, 500);
+}
+
 /** Everything one run needs that must NOT be shared between an owner conversation and an unattended job. */
 interface RunCtx {
   governor: Governor;
@@ -304,6 +316,9 @@ export class StarClawEngine {
     const r = await fn({ budget: ctx.budget });
     const micro = costMicrocents(r.usage, r.price);
     if (!r.prepaid) ctx.budget.record(micro);
+    for (const retry of r.retries ?? []) {
+      ctx.audit.append('llm.retry', { what, jobId: ctx.scheduled?.jobId, kind: retry.kind, waitSeconds: retry.waitSeconds });
+    }
     ctx.audit.append('llm.usage', { what, jobId: ctx.scheduled?.jobId, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, microcents: micro, priceAssumed: r.priceAssumed ?? false, runCentsCeil: ctx.budget.runCentsCeil, dayCentsCeil: ctx.budget.dayCentsCeil });
     return r.value;
   }
@@ -616,24 +631,59 @@ export class StarClawEngine {
       const deduplicate = new Set(['writeFile', 'editFile', 'applyPatch', 'spend', 'notifyOwner', 'scheduleCreate']);
       const observations: ChatTurn[] = [];
       const readOnly = new Set(['readFile', 'listDir', 'fetchUrl', 'search', 'browseReadText', 'browseReadLinks']);
+      const editTools = new Set(['writeFile', 'editFile', 'applyPatch']);
+      // Files this job has actually read (read-before-edit), and the payload hashes a human or policy denied in this job.
+      const readFiles = new Set<string>();
+      const deniedKeys = new Set<string>();
+      const { requireReadBeforeEdit, continueAfterDeny } = this.policy.agent;
+      const subInfo = () => sub && { depth: sub.scope.depth, tools: [...sub.scope.tools], domains: sub.scope.domains === 'any' ? ('any' as const) : [...sub.scope.domains], readPaths: [...sub.scope.readPaths], writePaths: [...sub.scope.writePaths], spendCents: sub.scope.spendCents, maxActions: sub.scope.maxActions };
+      // Next program from what was observed. Any observation sent back into a model is untrusted, including errors.
+      const replan = async (step: number, observation: string, note: string, extra: Record<string, unknown>) => {
+        gov.taint.mark('tool-output', `agent-step:${step + 1}`);
+        observations.push({ role: 'assistant', content: code.slice(0, 16000) }, { role: 'user', content: `UNTRUSTED OBSERVATION from step ${step + 1}: ${observation}\n${note}` });
+        ctx.audit.append('agent.continue', { step: step + 1, ...extra, observationSha256: sha256Hex(observation) });
+        log(`Planning step ${step + 2} from observed results`);
+        reusedId = undefined;
+        code = await this.llmCall(ctx, (options) => this.llm.generateCode({ goal, memoryContext, history: [...ctx.history.slice(0, -1), ...observations], tainted: true, subagent: subInfo() }, options), 'replan');
+        code = await this.validateAndHeal(ctx, goal, code);
+      };
+      const CONTINUE_NOTE = 'Continue the original goal from this progress. Do not repeat completed side effects. Verify the outcome before returning a final result.';
       for (let step = 0; step < this.policy.agent.maxSteps; step++) {
         usedSteps++;
         if (Date.now() >= deadline) return fail('task', 'agent wall-clock limit exceeded');
         let attemptedEffect = false;
         let denied: Decision | undefined;
+        const deniedThisStep: string[] = [];
         const stepBroker = { handle: async (call: Parameters<Broker['handle']>[0]) => {
           if (Date.now() >= deadline) throw new Error('agent wall-clock limit exceeded');
           const effect = !readOnly.has(call.name);
-          const key = effect ? sha256Hex(canonicalize(call)) : '';
+          const callKey = sha256Hex(canonicalize(call));
+          const key = effect ? callKey : '';
+          if (deniedKeys.has(callKey)) {
+            ctx.audit.append('agent.denied-repeat', { tool: call.name, payloadSha256: callKey });
+            throw new Error(`${call.name} refused: this exact action was already denied in this job, so it is not asked again. Choose a different approach.`);
+          }
           const previous = effects.get(key);
           if (effect && deduplicate.has(call.name) && previous && previous.step < step) return previous.result;
+          const target = typeof (call.args as any)?.path === 'string' ? ctx.broker.fileIdentity?.((call.args as any).path) : undefined;
+          if (requireReadBeforeEdit && editTools.has(call.name) && target?.exists && !readFiles.has(target.key)) {
+            // Not an attempted effect: nothing is written and no human is asked. The model gets the reason as an observation.
+            ctx.audit.append('agent.edit-unread', { tool: call.name, target: target.real });
+            throw new Error(`${call.name} refused: ${(call.args as any).path} already exists and has not been read in this job. Call tools.readFile({ path: ${JSON.stringify((call.args as any).path)} }) first and base the edit on its actual content. Nothing was written.`);
+          }
           if (effect) attemptedEffect = true;
           try {
             const result = await ctx.broker.handle(call);
             if (effect) effects.set(key, { step, result });
+            // A file this job read, or wrote itself, is known content: later edits to it are not guesses.
+            if (target && (call.name === 'readFile' || editTools.has(call.name))) readFiles.add(target.key);
             return result;
           } catch (e) {
-            if (e instanceof GovernorDenied) denied = e.decision;
+            if (e instanceof GovernorDenied) {
+              denied = e.decision;
+              deniedKeys.add(callKey);
+              deniedThisStep.push(`${call.name} ${e.action.target} (${e.decision.by}: ${e.decision.reason})`);
+            }
             throw e;
           }
         }};
@@ -642,6 +692,11 @@ export class StarClawEngine {
 
         // 4. Approval to execute (decision is audited before the code runs).
         codeHash = sha256Hex(code);
+        const execKey = `exec:${codeHash}`;
+        if (deniedKeys.has(execKey)) {
+          ctx.audit.append('agent.denied-repeat', { tool: 'exec', payloadSha256: codeHash });
+          return fail('task', 'the model re-proposed a program that was already denied in this job');
+        }
         const execAction: Action = {
           class: 'exec',
           target: 'sandbox:js',
@@ -650,6 +705,12 @@ export class StarClawEngine {
         };
         const d = await gov.authorize(execAction);
         if (!d.allowed) {
+          if (continueAfterDeny && step + 1 < this.policy.agent.maxSteps) {
+            deniedKeys.add(execKey);
+            ctx.audit.append('agent.denied-replan', { step: step + 1, by: d.by, reason: d.reason.slice(0, 300), payloadSha256: codeHash });
+            await replan(step, JSON.stringify({ denied: `running this program was denied (${d.by}): ${d.reason}` }), 'That program was NOT run. Propose a different program; do not resubmit the same one.', { denied: true });
+            continue;
+          }
           ctx.history.push({ role: 'assistant', content: `I was not permitted to run code for that goal (${d.reason}).` });
           return fail('task', `execution not permitted: ${d.reason}`, { denied: d });
         }
@@ -668,7 +729,16 @@ export class StarClawEngine {
           taintedAfter: gov.taint.tainted,
         });
         const continuation = run.ok && run.value && typeof run.value === 'object' && (run.value as any).__starclaw === 'continue';
-        if (denied && (!run.ok || continuation)) return fail('task', run.error ?? `Denied (${denied.by}): ${denied.reason}`, { denied, stdout: run.stdout });
+        const observation = JSON.stringify({ ok: run.ok, result: run.value, error: run.error, stdout: run.stdout }).slice(0, 12000);
+        // A step with a denied action never counts as a finished goal, even if the program caught the denial and returned.
+        if (denied) {
+          if (continueAfterDeny && step + 1 < this.policy.agent.maxSteps) {
+            ctx.audit.append('agent.denied-replan', { step: step + 1, by: denied.by, reason: denied.reason.slice(0, 300), deniedActions: deniedThisStep.length });
+            await replan(step, observation, `These actions were DENIED and will not be allowed if proposed again: ${deniedThisStep.join('; ').slice(0, 1500)}. Continue the original goal another way, or return a result that says plainly what could not be done. ${CONTINUE_NOTE}`, { denied: true });
+            continue;
+          }
+          return fail('task', run.error ?? `Denied (${denied.by}): ${denied.reason}`, { denied, stdout: run.stdout, ...(run.ok ? { result: run.value } : {}) });
+        }
         if (run.ok && !continuation) break;
         if (!run.ok) {
           if (reusedId) this.memory.reportError(reusedId);
@@ -677,18 +747,19 @@ export class StarClawEngine {
           retries++;
         }
         if (step + 1 >= this.policy.agent.maxSteps) return fail('task', 'agent step limit exceeded before completion', { stdout: run.stdout });
-        // Any observation sent back into a model is untrusted, including errors.
-        gov.taint.mark('tool-output', `agent-step:${step + 1}`);
-        const observation = JSON.stringify({ ok: run.ok, result: run.value, error: run.error, stdout: run.stdout }).slice(0, 12000);
-        observations.push({ role: 'assistant', content: code.slice(0, 16000) }, { role: 'user', content: `UNTRUSTED OBSERVATION from step ${step + 1}: ${observation}\nContinue the original goal from this progress. Do not repeat completed side effects. Verify the outcome before returning a final result.` });
-        ctx.audit.append('agent.continue', { step: step + 1, runtimeRetry: !run.ok, observationSha256: sha256Hex(observation) });
-        log(`Planning step ${step + 2} from observed results`);
-        reusedId = undefined;
-        code = await this.llmCall(ctx, (options) => this.llm.generateCode({ goal, memoryContext, history: [...ctx.history.slice(0, -1), ...observations], tainted: true, subagent: sub && { depth: sub.scope.depth, tools: [...sub.scope.tools], domains: sub.scope.domains === 'any' ? 'any' : [...sub.scope.domains], readPaths: [...sub.scope.readPaths], writePaths: [...sub.scope.writePaths], spendCents: sub.scope.spendCents, maxActions: sub.scope.maxActions } }, options), 'replan');
-        code = await this.validateAndHeal(ctx, goal, code);
+        await replan(step, observation, CONTINUE_NOTE, { runtimeRetry: !run.ok });
+      }
+      if (!run) return fail('task', 'agent step limit exceeded before completion');
+
+      // The program can finish normally and still report that the goal failed ({ success: false } / { ok: false }).
+      const reported = programReportedFailure(run.value);
+      if (reported) {
+        ctx.history.push({ role: 'assistant', content: `The program reported that the goal was not achieved: ${reported}` });
+        return fail('task', `the program reported failure: ${reported}`, { result: run.value, stdout: run.stdout });
       }
 
       // 5. Persist what was learned (each write is itself governed; denial is not a failure of the goal).
+      // Only a successful run reaches here, so a "Completed:" note is never proposed for a failed one.
       // (A sub-agent writes no memory and saves no skill: its answer goes to its parent, which decides what to keep.)
       if (!sub) {
         const content = `Completed: ${goal.slice(0, 300)}\nOutcome (untrusted data): ${JSON.stringify(run.value ?? null).slice(0, 2000)}`;

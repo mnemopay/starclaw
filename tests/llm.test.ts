@@ -237,7 +237,9 @@ return out;`);
     const e = new StarClawEngine({ llm, policy: policyWith({}), stateDir: path.join(d, 'state'), workspaceDir: path.join(d, 'ws'), approver });
     try {
       const r = await e.executeGoal('summarise my notes');
-      assert.equal(r.success, true, r.error);
+      // alpha.12: a step with a denied action is never reported as a success, even when the program caught the denial.
+      assert.equal(r.success, false);
+      assert.equal(r.denied?.by, 'human');
       assert.deepEqual(r.result, { cp: 'ERR_ACCESS_DENIED', net: 'ERR_GOVERNOR_DENIED' });
       assert.equal(approver.seen[0].action.class, 'exec');
       assert.match(approver.seen[0].action.detail!, /SYSTEM OVERRIDE/, 'the human sees the smuggled text in the exact code');
@@ -386,6 +388,7 @@ describe('alpha.11: native tool-call recovery and 429 backoff (OpenAI-compatible
     assert.equal(last.role, 'user');
     assert.match(last.content, /native tool\/function call/);
     assert.equal(g.usage.inputTokens, 26, "rejected call counted as ~the retry's input (13 + 13)");
+    assert.deepEqual(g.retries, [{ kind: 'tool_use_failed' }], 'alpha.12: the retry is reported so the engine can audit it');
   });
 
   test('a second tool_use_failed is not retried again (bounded)', async () => {
@@ -405,8 +408,10 @@ describe('alpha.11: native tool-call recovery and 429 backoff (OpenAI-compatible
   test('HTTP 429 is retried after Retry-After, up to llm.rateLimitRetries times', async () => {
     const s = await withServer((_r, res) => (s.seen.length <= 2 ? json(res, 429, { error: 'tpm' }, { 'retry-after': '0' }) : json(res, 200, openaiOk('ok'))));
     const llm = createLLM(llmPolicy({ provider: 'groq', baseUrl: s.base, rateLimitRetries: 2 }), { GROQ_API_KEY: KEY });
-    assert.equal((await llm.converse('x', [])).value, 'ok');
+    const ok = await llm.converse('x', []);
+    assert.equal(ok.value, 'ok');
     assert.equal(s.seen.length, 3);
+    assert.deepEqual(ok.retries, [{ kind: 'rate-limit', waitSeconds: 0 }, { kind: 'rate-limit', waitSeconds: 0 }]);
     const s2 = await withServer((_r, res) => json(res, 429, { error: 'tpm' }, { 'retry-after': '0' }));
     const llm2 = createLLM(llmPolicy({ provider: 'groq', baseUrl: s2.base, rateLimitRetries: 1 }), { GROQ_API_KEY: KEY });
     await assert.rejects(() => llm2.converse('x', []), (e: any) => e instanceof LlmError && e.kind === 'rate-limit');

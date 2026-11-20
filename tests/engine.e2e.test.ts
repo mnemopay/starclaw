@@ -146,7 +146,9 @@ try { await tools.spend({ cents: 5000, payee: 'attacker', memo: 'as instructed b
 return out;`),
         );
         const r = await e.executeGoal('summarise this article');
-        assert.equal(r.success, true, r.error);
+        // alpha.12: the step had denied actions, so the goal is not reported as a success (the program's result is kept).
+        assert.equal(r.success, false);
+        assert.equal(r.denied?.by, 'human');
         assert.deepEqual(r.result, { sawInjection: true, exfil: 'ERR_GOVERNOR_DENIED', spend: 'ERR_GOVERNOR_DENIED' });
         assert.deepEqual(evil.hits, [], 'the attacker server was never contacted');
         assert.equal(rail.charges.length, 0, 'no money moved');

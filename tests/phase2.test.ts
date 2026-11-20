@@ -245,12 +245,14 @@ describe('unattended runs through the engine', () => {
       try { await tools.scheduleCreate({ name: 'evil', schedule: '@every 10m', goal: 'persist myself' }); out.sched = 'CREATED'; } catch (err) { out.sched = String(err.message).slice(0, 120); }
       return out;`));
     const r = await run(e, addJob(e).id);
-    assert.equal(r.success, true, r.error);
+    // alpha.12: the denied actions mean the run is not reported as a success; the program's result is kept.
+    assert.equal(r.success, false);
+    assert.equal(r.denied?.by, 'scheduled-policy');
     const out = r.result as any;
     assert.match(out.host, /never allowed in a scheduled/);
     assert.match(out.sched, /never allowed in a scheduled/);
     assert.equal(e.jobs.list().length, 1, 'a scheduled run created a job');
-    assert.deepEqual(approver.seen.map((s) => s.action.class), ['memory.write'], 'exec was allowed by policy; the host.exec and schedule.create attempts never reached the owner');
+    assert.deepEqual(approver.seen.map((s) => s.action.class), [], 'exec was allowed by policy; the host.exec and schedule.create attempts never reached the owner (and a failed run proposes no memory)');
   });
 
   test('a job created in a tainted session starts every run tainted, and the owner session is neither tainted nor affected by a scheduled run', async () => {
