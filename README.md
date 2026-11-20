@@ -38,8 +38,9 @@ test call succeeds.
 For code changes, use a strong model. In our own real-repo test (fix a known bug in `@mnemopay/sdk` and add a test
 that proves it, on 2.0.0-alpha.10), **Claude Sonnet 5.5 via OpenRouter** wrote the fix and a test that catches the
 bug in **one attempt** (10 cents). **Groq's free models failed before the first step** on alpha.10 (the model emitted
-native tool calls that Groq rejects); 2.0.0-alpha.11 recovers from that and retries Groq's per-minute rate limit,
-but expect weaker results on multi-step code changes. Groq is the **free, fast option** when you have nothing else:
+native tool calls that Groq rejects). On 2.0.0-alpha.11 the default Groq setup runs the same job end to end with
+approvals, but in 2 of 2 attempts its program guessed the file's structure without reading it first, found nothing to
+patch and wrote nothing (it failed safely). Groq is the **free, fast option** when you have nothing else:
 `export GROQ_API_KEY=...` (key at console.groq.com). Policies without an `llm` block still use Groq, so existing
 setups keep working. Evidence: branches `demo/real-run-alpha10` / `demo/real-run-alpha11`.
 
