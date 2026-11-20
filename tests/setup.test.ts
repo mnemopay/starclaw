@@ -163,6 +163,6 @@ describe('setup prefers what you already have; Groq is only the free fallback (a
     assert.equal(recommendPreset({ local: [{ ...ollama, models: [] }], keysPresent: [] }).preselect, false);
   });
   test('the policy schema default is still provider "groq" (existing policies keep working)', () => {
-    assert.equal(parsePolicy('{}').llm.provider, 'groq');
+    assert.equal(parsePolicy('{"version":1}').llm.provider, 'groq');
   });
 });
