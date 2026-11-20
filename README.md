@@ -8,11 +8,11 @@ StarClaw generates JavaScript, runs it in an isolated sandbox, and can inspect r
 the next step. **Capabilities pass through a policy engine** that allows, asks a human, or denies,
 with a signed, hash-chained audit record written before an approved action runs.
 
-> **Status: `2.0.0-alpha.9`, an alpha, on the npm `next` tag; not yet recommended for customers.** See
+> **Status: `2.0.0-alpha.9`, an alpha, on npm (`latest` and `next`); not yet recommended for customers.** See
 > [Known limits](#known-limits) and [SECURITY.md](SECURITY.md) first. Install: the Windows installer from
 > [GitHub Releases](https://github.com/mnemopay/starclaw/releases), `curl -fsSL https://starclaw.dev/install.sh | bash` on
-> macOS/Linux, or `npm install -g starclaw@next` (Node 25.9+). Developed on Windows 11 x64; the installers are tested in CI
-> on Windows, Ubuntu and macOS. The old `starclaw@1.0.0` on npm is deprecated and broken: do not use it.
+> macOS/Linux, or `npm install -g starclaw` (Node 25.9+). Developed on Windows 11 x64; the installers are tested in CI
+> on Windows, Ubuntu and macOS. The old `starclaw@1.0.0` on npm is deprecated and broken; a plain install no longer resolves to it.
 
 StarClaw does **not** prevent prompt injection. It assumes the model *will* sometimes be steered by hostile
 content and limits what that can cost you: risky actions need a human, who is shown the exact action and where
@@ -23,7 +23,7 @@ the untrusted content came from, and everything is provable afterwards.
 Requires **Node.js >= 25.9.0** (see [why](#why-node-259)).
 
 ```bash
-npm install starclaw@next   # the 2.x alpha (currently 2.0.0-alpha.3); plain `npm install starclaw` still resolves the deprecated, broken 1.0.0
+npm install -g starclaw       # 2.0.0-alpha.9 (latest); the macOS/Linux and Windows installers above bundle Node for you
 export GROQ_API_KEY=...        # the bundled LLM backend is Groq; the LLM is an interface, bring your own
 npx starclaw sandbox build    # optional but recommended: builds the Docker sandbox image (needs Docker)
 npx starclaw doctor           # probes every isolation layer and prints what is blocked, which layer is ACTIVE and why

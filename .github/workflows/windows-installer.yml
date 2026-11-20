@@ -113,7 +113,7 @@ jobs:
             echo
             echo 'This exact file was installed, run (console + API) and uninstalled on a clean Windows VM by CI before this release was published.'
             echo
-            echo 'Also on npm: `npm install -g starclaw@next` (Node >= 25.9). See CHANGELOG.md for what changed.'
+            echo 'Also on npm: `npm install -g starclaw` (Node >= 25.9). See CHANGELOG.md for what changed.'
           } > notes.md
       - uses: softprops/action-gh-release@v2
         with:
