@@ -1,0 +1,24 @@
+{
+  "bundleVersion": "mnemopay-article12/1",
+  "generatedAt": "2026-11-20T01:55:03.450Z",
+  "retentionMonths": 6,
+  "files": [
+    {
+      "path": "mission.json",
+      "sha256": "dd806ced3dbba23d16c2fd933daec39e1550fa599a9d492650763a7d5db1f6e9"
+    },
+    {
+      "path": "events.json",
+      "sha256": "98cd7e4b1996c42cbdf8435bf14464bc8754c85baeccbbce82f14f56cad4f46a"
+    },
+    {
+      "path": "events.csv",
+      "sha256": "c6f56357a3053048e877b6fba0be9ac4a63a7caa52d39c149b94564bdf0affc9"
+    },
+    {
+      "path": "chain.txt",
+      "sha256": "bc56169d3f34f38e71b0aff20d509cad09e4d16a14a422213b735d65fc5117f4"
+    }
+  ],
+  "auditDigest": "4612956ee24b7ab16a22f8604bf0d7c8cc248864c5f63d10d2fd525fe610172b"
+}

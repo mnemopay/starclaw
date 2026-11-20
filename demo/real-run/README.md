@@ -3,7 +3,7 @@
 Unlike `site/editorial/example-run.json` (real engine, **scripted** model and approver), this run used a
 **real model** on a **real open defect**, with a person-in-the-loop approving each step after reading it.
 Nothing here was edited to look better: all 7 attempts, including the 6 failures, are in `attempts/`, and
-one signed audit chain (`audit/`) covers every attempt.
+one signed audit chain (`signed-log/`) covers every attempt.
 
 | | |
 |---|---|
@@ -65,13 +65,13 @@ one signed audit chain (`audit/`) covers every attempt.
 ## Verify it yourself
 
 ```bash
-npx starclaw audit verify demo/real-run/audit/audit.jsonl --pubkey-file demo/real-run/audit/audit.pub
+npx starclaw audit verify demo/real-run/signed-log/audit.jsonl --pubkey-file demo/real-run/signed-log/audit.pub
 # OK: 155 records verified (chain, signatures, head checkpoint); key pinned
 ```
 
 Flipping `"allowed":true` to `false` on line 119 (the approval of the source write) gives
 `FAILED: line 119: hash mismatch: record content was modified` (`tamper-verify.txt`).
-`audit/article12/` is the EU AI Act Article 12 export of the same log (`starclaw audit export`, `export.txt`).
+`signed-log/article12/` is the EU AI Act Article 12 export of the same log (`starclaw audit export`, `export.txt`).
 
 `real-run.json` uses the same shape as `site/editorial/example-run.json` (`format`, `provenance`, `publicKey`,
 `goal`, `input`, `code`, `runs.<name>.{result, approval, output, records, head}`) with one run, `real`,

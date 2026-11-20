@@ -1,0 +1,2 @@
+# Evidence files: store and check out byte-for-byte (a CRLF rewrite would break the signed log).
+* -text
