@@ -24,10 +24,24 @@ Requires **Node.js >= 25.9.0** (see [why](#why-node-259)).
 
 ```bash
 npm install -g starclaw       # 2.0.0-alpha.10 (latest); the macOS/Linux and Windows installers above bundle Node for you
-export GROQ_API_KEY=...        # default backend: Groq (openai/gpt-oss-120b); or set llm.provider/model for Anthropic, OpenAI, OpenRouter, Ollama, LM Studio
+npx starclaw app              # guided setup picks a model you already have (Anthropic/OpenRouter/OpenAI key, or Ollama/LM Studio)
 npx starclaw sandbox build    # optional but recommended: builds the Docker sandbox image (needs Docker)
 npx starclaw doctor           # probes every isolation layer and prints what is blocked, which layer is ACTIVE and why
 ```
+
+### Choosing a model
+
+`starclaw app` opens a guided setup that offers what you already have first: an Anthropic, OpenRouter or OpenAI key
+(in the environment or the app's `.env`), then a running Ollama or LM Studio server. Nothing is saved until a real
+test call succeeds.
+
+For code changes, use a strong model. In our own real-repo test (fix a known bug in `@mnemopay/sdk` and add a test
+that proves it, on 2.0.0-alpha.10), **Claude Sonnet 5.5 via OpenRouter** wrote the fix and a test that catches the
+bug in **one attempt** (10 cents). **Groq's free models failed before the first step** on alpha.10 (the model emitted
+native tool calls that Groq rejects); 2.0.0-alpha.11 recovers from that and retries Groq's per-minute rate limit,
+but expect weaker results on multi-step code changes. Groq is the **free, fast option** when you have nothing else:
+`export GROQ_API_KEY=...` (key at console.groq.com). Policies without an `llm` block still use Groq, so existing
+setups keep working. Evidence: branches `demo/real-run-alpha10` / `demo/real-run-alpha11`.
 
 ## Quick start
 

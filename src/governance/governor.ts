@@ -15,6 +15,7 @@ import {
   Decision,
   DENIED_IN_SUBAGENT,
   DENIED_WHEN_SCHEDULED,
+  detailSha256,
   GovernorDenied,
   NEVER_AUTO_WHEN_SCHEDULED,
   TAINT_SENSITIVE,
@@ -308,6 +309,9 @@ export class Governor {
       target: a.target,
       summary: a.summary,
       detail: a.detail ? (a.detail.length > 16000 ? a.detail.slice(0, 16000) + '...[truncated]' : a.detail) : undefined,
+      // Binds the decision to the FULL payload the approver was shown the hash of, even when `detail` above is cut.
+      detailChars: a.detail ? a.detail.length : undefined,
+      detailSha256: a.detail ? detailSha256(a.detail) : undefined,
       cents: a.cents,
       inWorkspace: a.inWorkspace,
       verdictBeforeApproval: verdict,

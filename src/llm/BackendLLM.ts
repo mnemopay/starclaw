@@ -47,6 +47,12 @@ export interface BackendConfig {
   timeoutMs?: number;
   maxResponseBytes?: number;
   fetchImpl?: typeof fetch;
+  /** OpenAI-compatible only: how many times to retry after HTTP 429 (default 3). */
+  rateLimitRetries?: number;
+  /** Upper bound on one 429 wait in seconds (default 60). */
+  maxRateLimitWaitSeconds?: number;
+  /** Test hook for the 429 wait. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const nonNegInt = (n: unknown): number => {
@@ -193,24 +199,57 @@ export class OpenAICompatBackend implements ChatBackend {
     const url = this.base.toString().replace(/\/+$/, '') + '/chat/completions';
     const headers: Record<string, string> = {};
     if (this.cfg.apiKey) headers.authorization = `Bearer ${this.cfg.apiKey}`;
-    const j = await postJson({
-      url,
-      headers,
-      body: { model: req.model, max_tokens: req.maxTokens, temperature: req.temperature, messages: [{ role: 'system', content: req.system }, ...mergeTurns(req.messages)] },
-      timeoutMs: this.cfg.timeoutMs ?? 60_000,
-      maxResponseBytes: this.cfg.maxResponseBytes ?? 2_000_000,
-      secrets: this.cfg.apiKey ? [this.cfg.apiKey] : [],
-      fetchImpl: this.cfg.fetchImpl,
-    });
+    const post = (messages: ChatTurn[]) =>
+      this.withRateLimitRetry(() =>
+        postJson({
+          url,
+          headers,
+          body: { model: req.model, max_tokens: req.maxTokens, temperature: req.temperature, messages: [{ role: 'system', content: req.system }, ...mergeTurns(messages)] },
+          timeoutMs: this.cfg.timeoutMs ?? 60_000,
+          maxResponseBytes: this.cfg.maxResponseBytes ?? 2_000_000,
+          secrets: this.cfg.apiKey ? [this.cfg.apiKey] : [],
+          fetchImpl: this.cfg.fetchImpl,
+        }),
+      );
+    let j: any;
+    let extraInputTokens = 0;
+    try {
+      j = await post(req.messages);
+    } catch (e) {
+      // Some hosted models (gpt-oss on Groq) answer the tool docs in our prompt with a NATIVE tool call, which the
+      // provider rejects (HTTP 400 tool_use_failed) because we declare no tools. Retry once with a correction.
+      if (!(e instanceof LlmError && e.kind === 'http' && e.status === 400 && /tool_use_failed/.test(e.message))) throw e;
+      j = await post([...req.messages, { role: 'user', content: NATIVE_TOOL_CALL_CORRECTION }]);
+      // The rejected call reports no usage; count its input as roughly the retry's (an over-estimate) so budgets stay conservative.
+      extraInputTokens = nonNegInt(j?.usage?.prompt_tokens);
+    }
     const choice = j?.choices?.[0];
     const truncated = choice?.finish_reason === 'length';
     let content = choice?.message?.content;
     // Reasoning models that spend the whole budget thinking return content null (or omit it) with finish_reason "length".
     if (content == null && truncated) content = '';
     if (typeof content !== 'string') throw new LlmError('OpenAI-compatible response has no choices[0].message.content string', 'malformed');
-    return { text: content, truncated, usage: { inputTokens: nonNegInt(j.usage?.prompt_tokens), outputTokens: nonNegInt(j.usage?.completion_tokens) } };
+    return { text: content, truncated, usage: { inputTokens: nonNegInt(j.usage?.prompt_tokens) + extraInputTokens, outputTokens: nonNegInt(j.usage?.completion_tokens) } };
+  }
+
+  /** HTTP 429: wait (Retry-After, else a default) and retry a bounded number of times. Free tiers (Groq) limit tokens per minute. */
+  private async withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
+    const retries = this.cfg.rateLimitRetries ?? 3;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        if (!(e instanceof LlmError && e.kind === 'rate-limit') || attempt >= retries) throw e;
+        const waitS = Math.min(Math.max(e.retryAfterSeconds ?? 20, 0), this.cfg.maxRateLimitWaitSeconds ?? 60);
+        await (this.cfg.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms))))(waitS * 1000);
+      }
+    }
   }
 }
+
+/** Sent after a provider rejected a native tool call (see OpenAICompatBackend.complete). */
+export const NATIVE_TOOL_CALL_CORRECTION =
+  'Your previous reply was a native tool/function call, which is not available here and was rejected. The tools.* functions exist only inside the JavaScript program you write. Reply with the complete program as plain text, defining async function execute() and module.exports = { execute }.';
 
 export function AnthropicLLM(cfg: BackendConfig): BackendLLM {
   return new BackendLLM(new AnthropicBackend(cfg), cfg);

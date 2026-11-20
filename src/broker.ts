@@ -279,12 +279,25 @@ export class Broker {
       return createHash('sha256').update(fs.readFileSync(real)).digest('hex');
     };
     const before = fingerprint();
+    // Replacing an existing text file: the approver sees a diff (old -> new), not the top of the new file, so an edit
+    // near the end cannot hide below a cut. New files and non-text content are shown as the full new content.
+    let shown = a.content;
+    let shownAs = 'full new content';
+    if (before) {
+      const oldT = readText(fs.readFileSync(real));
+      const newT = readText(Buffer.from(a.content, 'utf8'));
+      if (oldT.ok && newT.ok) {
+        const d = unifiedDiff(oldT.text, newT.text, path.relative(this.workspace, real).split(path.sep).join('/') || path.basename(real));
+        shown = d.diff === '' ? '(content identical to the current file)' : d.diff;
+        shownAs = `diff +${d.added} -${d.removed} lines`;
+      }
+    }
     const action: Action = {
       class: 'fs.write',
       target: real,
       inWorkspace,
-      summary: `Write ${Buffer.byteLength(a.content)} bytes to ${real} (${before ? `replace sha256 ${before}` : 'new file'})`,
-      detail: a.content.slice(0, 3000),
+      summary: `Write ${Buffer.byteLength(a.content)} bytes to ${real} (${before ? `replace sha256 ${before}` : 'new file'}; showing ${shownAs})`,
+      detail: shown,
     };
     return this.gov.governed(
       action,

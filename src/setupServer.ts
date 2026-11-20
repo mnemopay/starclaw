@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import express from 'express';
 import { bearerAuth } from './channels/http';
-import { detect, homeEnv, isPresetId, listModels, PRESETS, saveSetup, testModel, validKey, type PresetId, type SetupDeps } from './setup';
+import { detect, homeEnv, isPresetId, listModels, PRESETS, recommendPreset, saveSetup, testModel, validKey, type PresetId, type SetupDeps } from './setup';
 
 export interface SetupAppOptions {
   apiKey: string;
@@ -61,10 +61,13 @@ export function createSetupApp(o: SetupAppOptions) {
 
   api.get('/setup/status', wrap(async () => {
     const saved = homeEnv(o.home);
+    const detected = await detect(env, o.deps);
+    const keysSaved = (Object.values(presets) as Array<(typeof presets)[PresetId]>).filter((p) => p.keyEnv && saved[p.keyEnv]).map((p) => p.id);
     return {
       configured,
       presets: Object.values(presets).map((p) => ({ id: p.id, label: p.label, local: !!p.local, needsKey: !!p.keyEnv, keyUrl: p.keyUrl, fixedModel: p.fixedModel ?? null, keySaved: !!(p.keyEnv && (saved[p.keyEnv] || env[p.keyEnv])) })),
-      detected: await detect(env, o.deps),
+      detected,
+      recommended: recommendPreset(detected, keysSaved),
     };
   }));
   api.post('/setup/models', wrap(async (req) => {

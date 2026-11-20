@@ -121,7 +121,7 @@ describe('OpenAI-compatible provider (fake chat completions API)', () => {
 describe('failure handling (both providers)', () => {
   const providers: Array<[string, (b: string) => ReturnType<typeof createLLM>, (t: string) => unknown]> = [
     ['anthropic', (b) => createLLM(llmPolicy({ provider: 'anthropic', model: 'm', baseUrl: b }), { ANTHROPIC_API_KEY: KEY }), anthropicOk],
-    ['openai-compat', (b) => createLLM(llmPolicy({ provider: 'openai-compat', model: 'm', baseUrl: b + '/v1' }), { OPENAI_API_KEY: KEY }), openaiOk],
+    ['openai-compat', (b) => createLLM(llmPolicy({ provider: 'openai-compat', model: 'm', baseUrl: b + '/v1', rateLimitRetries: 0 }), { OPENAI_API_KEY: KEY }), openaiOk],
   ];
   for (const [name, mkLlm, ok] of providers) {
     test(`${name}: 429 is a rate-limit error carrying Retry-After`, async () => {
@@ -369,5 +369,53 @@ describe('output cap (llm.maxOutputTokens) and truncated responses', () => {
     const s = await withServer((_r, res) => json(res, 200, { content: [], stop_reason: 'max_tokens', usage: { input_tokens: 3, output_tokens: 8192 } }));
     const llm = createLLM(llmPolicy({ provider: 'anthropic', model: 'm', baseUrl: s.base }), { ANTHROPIC_API_KEY: KEY });
     await assert.rejects(() => llm.generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false }), (e: any) => e.kind === 'output-limit');
+  });
+});
+
+
+describe('alpha.11: native tool-call recovery and 429 backoff (OpenAI-compatible / Groq)', () => {
+  const toolUseFailed = { error: { message: 'Tool choice is none, but model called a tool', type: 'invalid_request_error', code: 'tool_use_failed', failed_generation: '{"name": "tools.listDir", "arguments": {"path": "."}}' } };
+
+  test('HTTP 400 tool_use_failed is retried once with a correction, and usage counts the rejected call', async () => {
+    const s = await withServer((_r, res) => (s.seen.length === 1 ? json(res, 400, toolUseFailed) : json(res, 200, openaiOk('async function execute() { return 1 }\nmodule.exports = { execute };'))));
+    const llm = createLLM(llmPolicy({ provider: 'groq', baseUrl: s.base }), { GROQ_API_KEY: KEY });
+    const g = await llm.generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false });
+    assert.match(g.value, /module\.exports/);
+    assert.equal(s.seen.length, 2);
+    const last = s.seen[1].body.messages.at(-1);
+    assert.equal(last.role, 'user');
+    assert.match(last.content, /native tool\/function call/);
+    assert.equal(g.usage.inputTokens, 26, "rejected call counted as ~the retry's input (13 + 13)");
+  });
+
+  test('a second tool_use_failed is not retried again (bounded)', async () => {
+    const s = await withServer((_r, res) => json(res, 400, toolUseFailed));
+    const llm = createLLM(llmPolicy({ provider: 'groq', baseUrl: s.base }), { GROQ_API_KEY: KEY });
+    await assert.rejects(() => llm.generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false }), (e: any) => e instanceof LlmError && e.status === 400);
+    assert.equal(s.seen.length, 2);
+  });
+
+  test('other HTTP 400s are not retried', async () => {
+    const s = await withServer((_r, res) => json(res, 400, { error: { message: 'bad request', code: 'invalid_request_error' } }));
+    const llm = createLLM(llmPolicy({ provider: 'groq', baseUrl: s.base }), { GROQ_API_KEY: KEY });
+    await assert.rejects(() => llm.converse('x', []));
+    assert.equal(s.seen.length, 1);
+  });
+
+  test('HTTP 429 is retried after Retry-After, up to llm.rateLimitRetries times', async () => {
+    const s = await withServer((_r, res) => (s.seen.length <= 2 ? json(res, 429, { error: 'tpm' }, { 'retry-after': '0' }) : json(res, 200, openaiOk('ok'))));
+    const llm = createLLM(llmPolicy({ provider: 'groq', baseUrl: s.base, rateLimitRetries: 2 }), { GROQ_API_KEY: KEY });
+    assert.equal((await llm.converse('x', [])).value, 'ok');
+    assert.equal(s.seen.length, 3);
+    const s2 = await withServer((_r, res) => json(res, 429, { error: 'tpm' }, { 'retry-after': '0' }));
+    const llm2 = createLLM(llmPolicy({ provider: 'groq', baseUrl: s2.base, rateLimitRetries: 1 }), { GROQ_API_KEY: KEY });
+    await assert.rejects(() => llm2.converse('x', []), (e: any) => e instanceof LlmError && e.kind === 'rate-limit');
+    assert.equal(s2.seen.length, 2);
+  });
+
+  test('the code-generation prompt forbids native tool calls', async () => {
+    const s = await withServer((_r, res) => json(res, 200, openaiOk('async function execute() {}\nmodule.exports = { execute };')));
+    await createLLM(llmPolicy({ provider: 'groq', baseUrl: s.base }), { GROQ_API_KEY: KEY }).generateCode({ goal: 'x', memoryContext: '', history: [], tainted: false });
+    assert.match(s.seen[0].body.messages[0].content, /NO native function-calling/);
   });
 });

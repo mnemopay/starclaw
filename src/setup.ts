@@ -114,6 +114,33 @@ export async function detect(env: NodeJS.ProcessEnv = process.env, deps: SetupDe
   return { local, keysPresent };
 }
 
+export interface Recommendation {
+  id: PresetId;
+  /** true: preselect it (the user already has it). false: only suggested (nothing usable was found). */
+  preselect: boolean;
+  reason: string;
+}
+
+/**
+ * What setup should offer first: something the user already has, most capable for coding work first. Hosted frontier
+ * models (Anthropic, then OpenRouter, then OpenAI) beat a local model at writing correct code; a running local server
+ * beats asking for a new key. Groq is only SUGGESTED as the free, fast option when nothing is found: never silently
+ * chosen. (The policy schema still defaults to provider "groq" so existing policies keep working.)
+ */
+export function recommendPreset(d: Detected, keysSaved: readonly PresetId[] = []): Recommendation {
+  const keys = new Set<PresetId>([...d.keysPresent, ...keysSaved]);
+  const hosted: Array<[PresetId, string]> = [
+    ['anthropic', 'an Anthropic key is already set: Claude is the strongest option here for code changes'],
+    ['openrouter', 'an OpenRouter key is already set: pick a strong coding model (for example a Claude model)'],
+    ['openai', 'an OpenAI key is already set'],
+  ];
+  for (const [id, reason] of hosted) if (keys.has(id)) return { id, preselect: true, reason };
+  const local = d.local.find((l) => l.models.length > 0);
+  if (local) return { id: local.id, preselect: true, reason: `${local.label} is running with ${local.models.length} model(s): free and private, but usually weaker at code than a hosted model` };
+  if (keys.has('groq')) return { id: 'groq', preselect: true, reason: 'a Groq key is already set (free and fast; weaker at multi-step code changes than Claude)' };
+  return { id: 'groq', preselect: false, reason: 'nothing found on this PC: Groq has a free key (fast; weaker at multi-step code changes than Claude)' };
+}
+
 /** The llm policy block for a preset + model. Local models cost nothing, so their price is 0 (no placeholder). */
 export function llmBlockFor(id: PresetId, model: string | undefined, presets: Record<PresetId, Preset> = PRESETS): Policy['llm'] {
   const p = presets[id];

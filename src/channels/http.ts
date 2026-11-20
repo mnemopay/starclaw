@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import express, { NextFunction, Request, Response, Router } from 'express';
-import { ApprovalAnswer, ApprovalRequest, Approver, describeRequest } from '../governance/types';
+import { ApprovalAnswer, ApprovalRequest, Approver, describeRequest, detailSha256 } from '../governance/types';
 
 export class ConfigError extends Error {
   constructor(msg: string) {
@@ -85,6 +85,9 @@ export class HttpApprover implements Approver {
       escalatedByTaint: req.escalatedByTaint,
       expiresAt: req.expiresAt,
       description: describeRequest(req),
+      // The full payload, uncut, so a console can always show everything that describeRequest had to cut.
+      detail: req.action.detail,
+      detailSha256: req.action.detail ? detailSha256(req.action.detail) : undefined,
     }));
   }
 

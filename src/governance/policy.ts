@@ -414,9 +414,11 @@ export const PolicySchema = z
         timeoutSeconds: z.number().int().min(1).max(600).default(60),
         /** Output-token cap for each code-generation / repair call. Too low cuts whole-file edits off mid-program. */
         maxOutputTokens: z.number().int().min(256).max(131_072).default(8192),
+        /** OpenAI-compatible providers (incl. Groq): retries after HTTP 429, honouring Retry-After (each wait capped at 60 s). */
+        rateLimitRetries: z.number().int().min(0).max(10).default(3),
       })
       .strict()
-      .default({ provider: 'groq', maxResponseBytes: 2_000_000, timeoutSeconds: 60, maxOutputTokens: 8192 }),
+      .default({ provider: 'groq', maxResponseBytes: 2_000_000, timeoutSeconds: 60, maxOutputTokens: 8192, rateLimitRetries: 3 }),
     /** Web search provider for tools.search. Default: none (the tool refuses). */
     search: z
       .object({

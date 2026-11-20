@@ -16,7 +16,7 @@ export function keyEnvName(p: LlmPolicy): string {
 /** Build the configured model client. Keys are read from the environment only. Throws LlmError('config') when unusable. */
 export function createLLM(p: LlmPolicy, env: Env = process.env, fetchImpl?: typeof fetch): LLM {
   const apiKey = env[keyEnvName(p)];
-  const common = { model: p.model ?? '', smallModel: p.smallModel, price: p.prices, baseUrl: p.baseUrl, apiKey, timeoutMs: p.timeoutSeconds * 1000, maxResponseBytes: p.maxResponseBytes, maxOutputTokens: p.maxOutputTokens, fetchImpl };
+  const common = { model: p.model ?? '', smallModel: p.smallModel, price: p.prices, baseUrl: p.baseUrl, apiKey, timeoutMs: p.timeoutSeconds * 1000, maxResponseBytes: p.maxResponseBytes, maxOutputTokens: p.maxOutputTokens, rateLimitRetries: p.rateLimitRetries, fetchImpl };
   switch (p.provider) {
     case 'groq':
       return new GroqLLM(apiKey, { ...common, model: p.model, baseUrl: p.baseUrl });
