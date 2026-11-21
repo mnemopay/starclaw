@@ -1,5 +1,28 @@
-# Changelog
-
+# Changelog
+
+## 2.0.0-alpha.12 (2026-11-20)
+
+### Fixed
+* **The top-level result is honest.** A program that returns `{ success: false }`, or a step that had a denied action (even one the program caught), is no longer reported as a successful goal; the program's result is kept on the failure. Sub-agents keep their contract (the parent receives the child's full result and decides). `ok: false` is deliberately not read as failure, because tool results such as `tools.spawnAgent`'s carry an `ok` field and are often returned verbatim.
+* **No "Completed:" memory for failed runs.** Only a successful run reaches the memory step, so a failed run proposes no memory note.
+* **LLM retries are visible.** `tool_use_failed` and HTTP 429 retries are returned with each LLM result and recorded in the audit log as `llm.retry` (`what`, `kind`, `waitSeconds`). alpha.11 could not show whether its retry fired.
+
+### Added
+* **Read before edit** (`agent.requireReadBeforeEdit`, default `true`). `writeFile` / `editFile` / `applyPatch` on an EXISTING file that the job has not read (or written itself) is refused before any approval or write, audited as `agent.edit-unread`, and the model is told to call `tools.readFile` first. The code-generation prompt says the same for every provider. New files are unaffected.
+* **Deny-continue, opt-in** (`agent.continueAfterDeny`, default `false`, so a denial still ends the job unless you turn it on). When on, a denied step is returned to the model as feedback and the job may replan within `agent.maxSteps`; the identical action (same payload hash, or the same program) is refused automatically if proposed again, never shown to a human twice; every new action still goes through approval. Audited as `agent.denied-replan` / `agent.denied-repeat`.
+
+### Changed
+* Behaviour change for callers that read `success`: runs whose final step had a caught denial now report `success: false` with `denied` set (four existing tests were updated accordingly).
+
+### Real run (default Groq, same goal as `demo/real-run-alpha11`, 1 attempt)
+* The model now read both files before editing (alpha.11 guessed their structure). It still did not fix the bug: after the reads, the replan request (9,665 tokens) exceeded Groq's free-tier limit of 8,000 tokens per minute and Groq answered HTTP 413; the job ended `success: false` and proposed no memory note. On Groq's free tier a multi-file code change does not fit; use a stronger or higher-tier model for code changes.
+
+### Known, not fixed
+* Observations sent back to the model are not trimmed to the provider's per-request token limit, so small free tiers (Groq on-demand, 8k TPM) can reject the replan after a large file read (HTTP 413, not retried).
+* Tests: 13 new (`tests/alpha12.test.ts`) plus retry assertions in `tests/llm.test.ts`. Full suite 603/603 without Docker; the Docker container suites were not re-run for this release.
+
+
+
 ## 2.0.0-alpha.11 (2026-11-20)
 
 ### Fixed
@@ -18,19 +41,32 @@
 * A denial still ends the job. A job whose program returns `{ success: false }` is reported `success: true` at the top level, and a memory note labelled "Completed:" is proposed for it (the approver can deny it, as in the real run).
 * Tests: 16 new (`tests/llm.test.ts`, `tests/approvals-alpha11.test.ts`, `tests/setup.test.ts`). Full suite 590/590 without Docker; container + sandbox suites 102 with Docker (2 timing-based shell write-back race tests failed once under load and passed 17/17 when re-run alone).
 
-## 2.0.0-alpha.10 (2026-11-20)
-
-### Fixed
-* **The default Groq setup works again.** Groq no longer serves `llama-3.3-70b-versatile` or `llama-3.1-8b-instant` on its on-demand tier (404 `model_not_found`, checked against Groq's live model list on 2026-11-19), so every install on the default `groq` provider failed on its first goal, and `llm.model` was ignored for `groq`. Groq now runs through the same OpenAI-compatible backend as the other providers: defaults `openai/gpt-oss-120b` (code) and `openai/gpt-oss-20b` (intent classification) at Groq's list prices on 2026-11-19 (15/60 and 8/30 cents per million tokens; the 20b input price of $0.075 is rounded up). `llm.model`, `llm.smallModel` and `llm.prices` override them; a model with no known or configured price uses the conservative placeholder. `groq-sdk` is no longer a dependency.
-* **Output cap per step: 1500 -> 8192 tokens, and configurable.** New policy field `llm.maxOutputTokens` (default 8192, 256 to 131072) for code generation and repair. 1500 cut whole-file edits off mid-program.
-* **Clear error when a model hits the cap.** A response that stops at the length limit (`finish_reason: "length"`, Anthropic `stop_reason: "max_tokens"`) with code cut off or no text at all is now an `LlmError` of kind `output-limit` that names the cap and how to raise it (or that the run's LLM budget limited it), instead of "no choices[0].message.content string". Truncated code is never run. Intent classification gets 256 tokens (reasoning models spent 31 to 84 tokens answering one word and returned nothing at 10) and falls back to `task`, the governed path, if it is still cut off. Chat keeps partial text.
-* Tests: 10 new in `tests/llm.test.ts` (Groq defaults and overrides, the cap and its policy bound, truncation for both providers). Full suite 619/619 with Docker. Checked live against Groq with the default policy: classification, code generation and chat.
-
-## 2.0.0-alpha.9 (2026-11-18)
-
-### Added
-* **Guided model setup** in `starclaw app`. With no usable model (for example no key yet, as on a fresh install) the app opens a setup page instead of exiting; `--setup` forces it. The page detects Ollama and LM Studio running on this PC (with their models), takes a key for Groq, Anthropic, OpenAI or OpenRouter (with a link to get one), lists the models that key can use live from the provider (no model names are baked in except Groq's built-in one), and **runs a real test call before anything can be saved**. Saving repeats the test on the server, validates the policy, writes the key to `<home>/.env` and the model to `<home>/starclaw.policy.json` (other policy fields and `.env` lines are kept; local models are priced at 0), then starts the agent on the same port: the page lands in the console, already signed in. Setup only offers fixed providers: the browser never supplies a URL, so the setup API cannot be used to make this PC call an arbitrary host. Everything under `/api` needs the console key. A broken policy file is still an error, not a reason to open setup.
-* Tests: `tests/setup.test.ts` (6, against a fake OpenAI-compatible server, including key scrubbing from provider errors and "nothing saved when the model does not answer"); `tests/app.test.ts` updated (the CLI opens setup instead of exiting; a broken policy still exits 1). Checked by hand in a real browser against a fake Ollama: detect, test, save, console.
+## 2.0.0-alpha.10 (2026-11-20)
+
+
+
+### Fixed
+
+* **The default Groq setup works again.** Groq no longer serves `llama-3.3-70b-versatile` or `llama-3.1-8b-instant` on its on-demand tier (404 `model_not_found`, checked against Groq's live model list on 2026-11-19), so every install on the default `groq` provider failed on its first goal, and `llm.model` was ignored for `groq`. Groq now runs through the same OpenAI-compatible backend as the other providers: defaults `openai/gpt-oss-120b` (code) and `openai/gpt-oss-20b` (intent classification) at Groq's list prices on 2026-11-19 (15/60 and 8/30 cents per million tokens; the 20b input price of $0.075 is rounded up). `llm.model`, `llm.smallModel` and `llm.prices` override them; a model with no known or configured price uses the conservative placeholder. `groq-sdk` is no longer a dependency.
+
+* **Output cap per step: 1500 -> 8192 tokens, and configurable.** New policy field `llm.maxOutputTokens` (default 8192, 256 to 131072) for code generation and repair. 1500 cut whole-file edits off mid-program.
+
+* **Clear error when a model hits the cap.** A response that stops at the length limit (`finish_reason: "length"`, Anthropic `stop_reason: "max_tokens"`) with code cut off or no text at all is now an `LlmError` of kind `output-limit` that names the cap and how to raise it (or that the run's LLM budget limited it), instead of "no choices[0].message.content string". Truncated code is never run. Intent classification gets 256 tokens (reasoning models spent 31 to 84 tokens answering one word and returned nothing at 10) and falls back to `task`, the governed path, if it is still cut off. Chat keeps partial text.
+
+* Tests: 10 new in `tests/llm.test.ts` (Groq defaults and overrides, the cap and its policy bound, truncation for both providers). Full suite 619/619 with Docker. Checked live against Groq with the default policy: classification, code generation and chat.
+
+
+
+## 2.0.0-alpha.9 (2026-11-18)
+
+
+
+### Added
+
+* **Guided model setup** in `starclaw app`. With no usable model (for example no key yet, as on a fresh install) the app opens a setup page instead of exiting; `--setup` forces it. The page detects Ollama and LM Studio running on this PC (with their models), takes a key for Groq, Anthropic, OpenAI or OpenRouter (with a link to get one), lists the models that key can use live from the provider (no model names are baked in except Groq's built-in one), and **runs a real test call before anything can be saved**. Saving repeats the test on the server, validates the policy, writes the key to `<home>/.env` and the model to `<home>/starclaw.policy.json` (other policy fields and `.env` lines are kept; local models are priced at 0), then starts the agent on the same port: the page lands in the console, already signed in. Setup only offers fixed providers: the browser never supplies a URL, so the setup API cannot be used to make this PC call an arbitrary host. Everything under `/api` needs the console key. A broken policy file is still an error, not a reason to open setup.
+
+* Tests: `tests/setup.test.ts` (6, against a fake OpenAI-compatible server, including key scrubbing from provider errors and "nothing saved when the model does not answer"); `tests/app.test.ts` updated (the CLI opens setup instead of exiting; a broken policy still exits 1). Checked by hand in a real browser against a fake Ollama: detect, test, save, console.
+
 * **Chat console.** `starclaw app` now opens a conversation instead of a one-goal form: your messages and StarClaw's replies, live progress while it works, and approvals as cards in the conversation the moment they are asked (Allow once / Deny). Live updates come over `/api/stream`, read with `fetch()` so the console key stays in a header. The conversation is kept per session in `<stateDir>/console/*.jsonl` (owner-only); **New session** starts a fresh one and **History** shows earlier sessions read-only. Earlier sessions are deliberately NOT fed back into the agent: content it read before (tainted) cannot slip into a clean session. Replies built from untrusted content are marked. The signed audit log stays the record of what the agent did.
 * Tests: `tests/console.test.ts` (5: transcript files and id validation, live event order, approvals appearing and clearing, auth on every new endpoint). Checked in a real browser: send, reply, new session, history.
 * **Governed MCP.** `tools.mcpList({ server? })` and `tools.mcpCall({ server, tool, args })` for MCP servers **the owner declares** in the new policy block `mcp` (disabled by default; stdio or http; the agent can never add a server). Every call is the new action class `mcp.call` (default `ask`; target `server/tool`, so rules like `{ class: "mcp.call", target: "github/list_*", verdict: "allow" }` work; never auto-allowed when tainted or unattended): the approver sees server, tool and the exact arguments, and the decision and result size are audited (never the result text). Results and tool lists are untrusted and taint the session, because tool descriptions are a known injection channel ("tool poisoning"). Optional per-server `tools` allow-list (others hidden and refused before anyone is asked), `timeoutSeconds`, `maxResultChars`. stdio servers start with a minimal environment (the MCP SDK's safe defaults plus only the env var NAMES you list), so your model keys and tokens are not inherited; they still run on your PC outside the sandbox, and `starclaw doctor` says so. http servers: https only (http to localhost), optional bearer token from a named env var, redirects refused. Sub-agents and registry skills get the tools only when `mcp.call` is in their capabilities. `@modelcontextprotocol/sdk` is now a direct dependency.
