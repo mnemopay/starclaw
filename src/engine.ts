@@ -318,7 +318,7 @@ export class StarClawEngine {
     const micro = costMicrocents(r.usage, r.price);
     if (!r.prepaid) ctx.budget.record(micro);
     for (const retry of r.retries ?? []) {
-      ctx.audit.append('llm.retry', { what, jobId: ctx.scheduled?.jobId, kind: retry.kind, waitSeconds: retry.waitSeconds });
+      ctx.audit.append('llm.retry', { what, jobId: ctx.scheduled?.jobId, kind: retry.kind, waitSeconds: retry.waitSeconds, omittedChars: retry.omittedChars, limitTokens: retry.limitTokens });
     }
     ctx.audit.append('llm.usage', { what, jobId: ctx.scheduled?.jobId, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens, microcents: micro, priceAssumed: r.priceAssumed ?? false, runCentsCeil: ctx.budget.runCentsCeil, dayCentsCeil: ctx.budget.dayCentsCeil });
     return r.value;

@@ -2,6 +2,7 @@ import { reserveChat } from './reserve';
 import type { LlmUsage } from '../governance/budget';
 import { assertSafeBaseUrl, LlmError, postJson, scrub } from './http';
 import { codegenSystemPrompt } from './prompts';
+import { fitRequest, parseTokenLimit } from './context';
 import type { ChatTurn, CodegenRequest, Intent, LLM, LlmResult, LlmCallOptions, LlmRetry } from './types';
 
 export interface Price {
@@ -55,6 +56,8 @@ export interface BackendConfig {
   maxRateLimitWaitSeconds?: number;
   /** Test hook for the 429 wait. */
   sleep?: (ms: number) => Promise<void>;
+  /** Most tokens (input estimate + max output) one request may carry (policy llm.requestTokenLimit). Unset = no limit. */
+  requestTokenLimit?: number;
 }
 
 const nonNegInt = (n: unknown): number => {
@@ -94,20 +97,62 @@ export class BackendLLM implements LLM {
   }
 
   private async chat(model: string, system: string, messages: ChatTurn[], maxTokens: number, temperature: number, options: LlmCallOptions | undefined, onTruncated: Truncation, price: Price = this.price): Promise<LlmResult<string>> {
-    const reservation = reserveChat(options, { system, messages }, maxTokens, price);
-    const r = await this.backend.complete({ system, messages, maxTokens: reservation.maxTokens, temperature, model });
+    const fitted: LlmRetry[] = [];
+    const fit = (limit: number | undefined) => {
+      if (!limit) return { messages, maxTokens };
+      const f = fitRequest(system, messages, maxTokens, limit);
+      if (!f.fits)
+        throw new LlmError(
+          `this request needs about ${f.estimatedInputTokens} input tokens, which leaves too little room for a reply under the ${limit}-token request limit even after shortening earlier observations. Raise llm.requestTokenLimit (a paid tier allows more) or use a model with a larger limit.`,
+          'request-too-large',
+        );
+      if (f.omittedChars) fitted.push({ kind: 'context-trimmed', omittedChars: f.omittedChars, limitTokens: limit });
+      return { messages: f.messages, maxTokens: f.maxTokens };
+    };
+    let limit = this.cfg.requestTokenLimit;
+    let req = fit(limit);
+    let reservation = reserveChat(options, { system, messages: req.messages }, req.maxTokens, price);
+    let r: ChatResponse;
+    try {
+      r = await this.backend.complete({ system, messages: req.messages, maxTokens: reservation.maxTokens, temperature, model });
+    } catch (e) {
+      // The provider counted more than our estimate (or no limit was configured): shrink once and resend.
+      if (!(e instanceof LlmError && e.kind === 'request-too-large')) throw e;
+      reservation.settle({ inputTokens: 0, outputTokens: 0 });
+      const parsed = parseTokenLimit(e.message);
+      const base = parsed.limit ?? limit ?? Math.floor((parsed.requested ?? 16_000) * 0.75);
+      const smaller = Math.floor(Math.min(base, limit ?? base) * 0.8);
+      fitted.push({ kind: 'request-too-large', limitTokens: smaller });
+      limit = smaller;
+      req = fit(limit);
+      reservation = reserveChat(options, { system, messages: req.messages }, req.maxTokens, price);
+      try {
+        r = await this.backend.complete({ system, messages: req.messages, maxTokens: reservation.maxTokens, temperature, model });
+      } catch (e2) {
+        if (!(e2 instanceof LlmError && e2.kind === 'request-too-large')) throw e2;
+        reservation.settle({ inputTokens: 0, outputTokens: 0 });
+        throw new LlmError(
+          `${this.backend.provider} rejected the request as too large even after shortening it to about ${limit} tokens${parsed.limit ? ` (provider limit ${parsed.limit})` : ''}. Lower llm.requestTokenLimit, or use a tier/model with a larger per-request limit.`,
+          'request-too-large',
+          e2.status,
+        );
+      }
+    }
     reservation.settle(r.usage);
+    const retries = [...fitted, ...(r.retries ?? [])];
     if (r.truncated && (onTruncated === 'throw' || (onTruncated === 'throw-if-empty' && !r.text.trim()))) {
       const why =
-        reservation.maxTokens < maxTokens
+        reservation.maxTokens < req.maxTokens
           ? `the remaining LLM budget only funded ${reservation.maxTokens} of ${maxTokens} output tokens; raise the run's LLM budget`
-          : `raise llm.maxOutputTokens in the policy (now ${this.maxOutputTokens}) or ask for a smaller step`;
+          : req.maxTokens < maxTokens
+            ? `the ${limit}-token request limit only left room for ${req.maxTokens} output tokens; raise llm.requestTokenLimit (a paid tier allows more) or ask for a smaller step`
+            : `raise llm.maxOutputTokens in the policy (now ${this.maxOutputTokens}) or ask for a smaller step`;
       throw new LlmError(
         `${this.backend.provider} model "${model}" hit its ${reservation.maxTokens}-token output cap before finishing${r.text.trim() ? ' (the output was cut off)' : ' and returned no text'}: ${why}`,
         'output-limit',
       );
     }
-    return { value: r.text, usage: r.usage, price, priceAssumed: this.priceAssumed, prepaid: reservation.prepaid, ...(r.retries?.length ? { retries: r.retries } : {}) };
+    return { value: r.text, usage: r.usage, price, priceAssumed: this.priceAssumed, prepaid: reservation.prepaid, ...(retries.length ? { retries } : {}) };
   }
 
   async classifyIntent(goal: string, options?: LlmCallOptions): Promise<LlmResult<Intent>> {

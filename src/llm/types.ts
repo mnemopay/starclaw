@@ -21,9 +21,16 @@ export interface LlmResult<T> {
 }
 
 export interface LlmRetry {
-  /** tool_use_failed: the provider rejected a native tool call and the request was retried with a correction. rate-limit: HTTP 429. */
-  kind: 'tool_use_failed' | 'rate-limit';
+  /**
+   * tool_use_failed: the provider rejected a native tool call and the request was retried with a correction. rate-limit: HTTP 429.
+   * context-trimmed: earlier observations were shortened (head + tail, explicit marker) to fit llm.requestTokenLimit.
+   * request-too-large: the provider still rejected the request as too large (HTTP 413) and it was shrunk and resent.
+   */
+  kind: 'tool_use_failed' | 'rate-limit' | 'context-trimmed' | 'request-too-large';
   waitSeconds?: number;
+  /** context-trimmed / request-too-large: characters left out and the token limit the request was fitted to. */
+  omittedChars?: number;
+  limitTokens?: number;
 }
 
 export type Intent = 'conversation' | 'task';
