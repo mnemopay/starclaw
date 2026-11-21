@@ -1,6 +1,6 @@
 # StarClaw
 
-> StarClaw is an open-source (Apache-2.0) autonomous AI agent for research, code changes and scheduled work, by J&B Enterprise LLC. Every action it takes is checked against a policy you control (allow / ask / deny), risky actions are put to a human, generated code runs in a sandbox, and a signed, hash-chained audit log records each decision and action. Current version: 2.0.0-alpha.9 (developer alpha).
+> StarClaw is an open-source (Apache-2.0) autonomous AI agent for research, code changes and scheduled work, by J&B Enterprise LLC. Every action it takes is checked against a policy you control (allow / ask / deny), risky actions are put to a human, generated code runs in a sandbox, and a signed, hash-chained audit log records each decision and action. Current version: 2.0.0-alpha.11 (developer alpha).
 
 Key facts:
 - Does NOT prevent prompt injection; it limits what a steered model can do next. Once untrusted content (web pages, tool output) is in a session, sensitive actions escalate to a human.
@@ -20,3 +20,6 @@ Key facts:
 - [Docs](https://starclaw.dev/docs/)
 - [StarClaw vs OpenClaw vs Hermes Agent](https://starclaw.dev/compare/)
 - [Source](https://github.com/mnemopay/starclaw) · [npm](https://www.npmjs.com/package/starclaw) · [Changelog](https://github.com/mnemopay/starclaw/blob/main/CHANGELOG.md)
+
+## Real run
+- https://starclaw.dev/real-run/ : a real StarClaw run (Claude Sonnet 5.5 via OpenRouter) that fixed a real bug in mnemopay-sdk, with test results and a signed audit log verifiable in the browser. Approvals were made by Claude acting for the maintainer.

@@ -15,7 +15,7 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[
 {"@type":"WebSite","@id":"https://starclaw.dev/#website","name":"StarClaw","url":"https://starclaw.dev/","publisher":{"@id":"https://starclaw.dev/#org"}},
 {"@type":"Organization","@id":"https://starclaw.dev/#org","name":"J&B Enterprise LLC","url":"https://starclaw.dev/","email":"hello@starclaw.dev","sameAs":["https://github.com/mnemopay/starclaw","https://www.npmjs.com/package/starclaw"]},
-{"@type":"SoftwareApplication","name":"StarClaw","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","softwareVersion":"2.0.0-alpha.9","license":"https://www.apache.org/licenses/LICENSE-2.0","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/mnemopay/starclaw/releases","installUrl":"https://starclaw.dev/install.sh","codeRepository":"https://github.com/mnemopay/starclaw","author":{"@id":"https://starclaw.dev/#org"},"description":"An open-source autonomous AI agent: every action is checked against a policy you control, risky actions are put to a human, generated code runs in a sandbox, and a signed hash-chained audit log records what happened. Developer alpha."},
+{"@type":"SoftwareApplication","name":"StarClaw","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","softwareVersion":"2.0.0-alpha.11","license":"https://www.apache.org/licenses/LICENSE-2.0","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/mnemopay/starclaw/releases","installUrl":"https://starclaw.dev/install.sh","codeRepository":"https://github.com/mnemopay/starclaw","author":{"@id":"https://starclaw.dev/#org"},"description":"An open-source autonomous AI agent: every action is checked against a policy you control, risky actions are put to a human, generated code runs in a sandbox, and a signed hash-chained audit log records what happened. Developer alpha."},
 {"@type":"FAQPage","mainEntity":[
 {"@type":"Question","name":"What is StarClaw?","acceptedAnswer":{"@type":"Answer","text":"An open-source (Apache-2.0) AI agent that does research, code changes and scheduled work. Every action is checked against a policy that can allow, ask or deny; risky actions go to a human; and a signed, hash-chained audit log records each decision and action. It is a developer alpha."}},
 {"@type":"Question","name":"Does StarClaw prevent prompt injection?","acceptedAnswer":{"@type":"Answer","text":"No. It assumes hostile content can steer the model. Its controls limit what the model can do next: once untrusted content is in a session, sensitive actions need a human, and everything is recorded."}},
@@ -51,7 +51,7 @@
       <section class="scope" aria-label="Recorded run explorer">
         <div class="scopehead">
           <b>Event sequence</b>
-          <label>Recorded outcome <select id="branch"><option value="approve">Approved</option><option value="deny">Denied</option></select></label>
+          <label>Recorded run <select id="branch"><option value="real">Real run: Claude fixes a real bug</option><option value="approve">Scripted example: approved</option><option value="deny">Scripted example: denied</option></select></label>
         </div>
         <div class="plot"><canvas aria-hidden="true"></canvas></div>
         <div class="controls">
@@ -65,13 +65,13 @@
           <div><p class="micro">Record hash</p><code id="digest"></code></div>
         </div>
       </section>
-      <p class="source">Real engine · Scripted model and approver · <a href="/editorial/example-run.json">Source data ↗</a></p>
+      <p class="source" id="source">Real run: Claude Sonnet 5.5 via OpenRouter on a real repo (mnemopay-sdk) and a real bug · approvals made by Claude acting for the maintainer · 1 attempt · about $0.10 · <a href="/real-run/">What happened and verify it ↗</a> · <a href="/editorial/real-run.json">Source data ↗</a></p>
     </div>
     <section class="bench">
       <div>
         <p class="micro">Playback</p><h2>Check the<br>signature<span>.</span></h2>
-        <p>Watch the browser verify the approved run and reject a changed record. Then inspect the same example yourself.</p>
-        <a href="/editorial/#recorded-run">Open the verifier ↗</a>
+        <p>Watch the browser verify a signed run and reject a changed record. Then check the real run yourself, in your browser.</p>
+        <a href="/real-run/#verify">Verify the real run ↗</a> · <a href="/editorial/#recorded-run">Scripted walkthrough ↗</a>
       </div>
       <video controls muted playsinline preload="none" poster="/assets/films/run.jpg" src="/assets/films/run.mp4" aria-label="Signed log verification walkthrough">
         <track kind="captions" label="English" srclang="en" src="/assets/films/run.vtt">
