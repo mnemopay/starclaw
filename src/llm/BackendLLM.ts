@@ -2,7 +2,7 @@ import { reserveChat } from './reserve';
 import type { LlmUsage } from '../governance/budget';
 import { assertSafeBaseUrl, LlmError, postJson, scrub } from './http';
 import { codegenSystemPrompt } from './prompts';
-import type { ChatTurn, CodegenRequest, Intent, LLM, LlmResult, LlmCallOptions } from './types';
+import type { ChatTurn, CodegenRequest, Intent, LLM, LlmResult, LlmCallOptions, LlmRetry } from './types';
 
 export interface Price {
   inputCentsPerMTok: number;
@@ -27,6 +27,8 @@ export interface ChatResponse {
   usage: LlmUsage;
   /** The provider stopped because it reached max_tokens (OpenAI finish_reason "length", Anthropic stop_reason "max_tokens"). */
   truncated?: boolean;
+  /** Retries that happened inside this request. */
+  retries?: LlmRetry[];
 }
 export interface ChatBackend {
   readonly provider: string;
@@ -105,7 +107,7 @@ export class BackendLLM implements LLM {
         'output-limit',
       );
     }
-    return { value: r.text, usage: r.usage, price, priceAssumed: this.priceAssumed, prepaid: reservation.prepaid };
+    return { value: r.text, usage: r.usage, price, priceAssumed: this.priceAssumed, prepaid: reservation.prepaid, ...(r.retries?.length ? { retries: r.retries } : {}) };
   }
 
   async classifyIntent(goal: string, options?: LlmCallOptions): Promise<LlmResult<Intent>> {
@@ -199,8 +201,9 @@ export class OpenAICompatBackend implements ChatBackend {
     const url = this.base.toString().replace(/\/+$/, '') + '/chat/completions';
     const headers: Record<string, string> = {};
     if (this.cfg.apiKey) headers.authorization = `Bearer ${this.cfg.apiKey}`;
+    const retries: LlmRetry[] = [];
     const post = (messages: ChatTurn[]) =>
-      this.withRateLimitRetry(() =>
+      this.withRateLimitRetry(retries, () =>
         postJson({
           url,
           headers,
@@ -219,6 +222,7 @@ export class OpenAICompatBackend implements ChatBackend {
       // Some hosted models (gpt-oss on Groq) answer the tool docs in our prompt with a NATIVE tool call, which the
       // provider rejects (HTTP 400 tool_use_failed) because we declare no tools. Retry once with a correction.
       if (!(e instanceof LlmError && e.kind === 'http' && e.status === 400 && /tool_use_failed/.test(e.message))) throw e;
+      retries.push({ kind: 'tool_use_failed' });
       j = await post([...req.messages, { role: 'user', content: NATIVE_TOOL_CALL_CORRECTION }]);
       // The rejected call reports no usage; count its input as roughly the retry's (an over-estimate) so budgets stay conservative.
       extraInputTokens = nonNegInt(j?.usage?.prompt_tokens);
@@ -229,11 +233,11 @@ export class OpenAICompatBackend implements ChatBackend {
     // Reasoning models that spend the whole budget thinking return content null (or omit it) with finish_reason "length".
     if (content == null && truncated) content = '';
     if (typeof content !== 'string') throw new LlmError('OpenAI-compatible response has no choices[0].message.content string', 'malformed');
-    return { text: content, truncated, usage: { inputTokens: nonNegInt(j.usage?.prompt_tokens) + extraInputTokens, outputTokens: nonNegInt(j.usage?.completion_tokens) } };
+    return { text: content, truncated, usage: { inputTokens: nonNegInt(j.usage?.prompt_tokens) + extraInputTokens, outputTokens: nonNegInt(j.usage?.completion_tokens) }, ...(retries.length ? { retries } : {}) };
   }
 
   /** HTTP 429: wait (Retry-After, else a default) and retry a bounded number of times. Free tiers (Groq) limit tokens per minute. */
-  private async withRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
+  private async withRateLimitRetry<T>(log: LlmRetry[], fn: () => Promise<T>): Promise<T> {
     const retries = this.cfg.rateLimitRetries ?? 3;
     for (let attempt = 0; ; attempt++) {
       try {
@@ -241,6 +245,7 @@ export class OpenAICompatBackend implements ChatBackend {
       } catch (e) {
         if (!(e instanceof LlmError && e.kind === 'rate-limit') || attempt >= retries) throw e;
         const waitS = Math.min(Math.max(e.retryAfterSeconds ?? 20, 0), this.cfg.maxRateLimitWaitSeconds ?? 60);
+        log.push({ kind: 'rate-limit', waitSeconds: waitS });
         await (this.cfg.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms))))(waitS * 1000);
       }
     }

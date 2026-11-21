@@ -16,6 +16,14 @@ export interface LlmResult<T> {
   priceAssumed?: boolean;
   /** The backend reserved and reconciled this call before returning. */
   prepaid?: boolean;
+  /** Provider-level retries that happened inside this call (recorded in the audit log as llm.retry). */
+  retries?: LlmRetry[];
+}
+
+export interface LlmRetry {
+  /** tool_use_failed: the provider rejected a native tool call and the request was retried with a correction. rate-limit: HTTP 429. */
+  kind: 'tool_use_failed' | 'rate-limit';
+  waitSeconds?: number;
 }
 
 export type Intent = 'conversation' | 'task';
