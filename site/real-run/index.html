@@ -1,0 +1,106 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090d0b"><title>StarClaw — A real run, verified</title><meta name="description" content="A real StarClaw run: Claude Sonnet 5.5 fixed a real bug in a real repository, with every approval in a signed log you can verify in your browser."><link rel="canonical" href="https://starclaw.dev/real-run/"><meta property="og:title" content="StarClaw — A real run, verified"><meta property="og:description" content="A real StarClaw run: Claude Sonnet 5.5 fixed a real bug in a real repository, with every approval in a signed log you can verify in your browser."><meta property="og:type" content="website"><meta property="og:site_name" content="StarClaw"><meta name="twitter:card" content="summary_large_image"><link rel="icon" href="../assets/mark.svg" type="image/svg+xml"><link rel="stylesheet" href="../assets/fonts/fonts.css"><link rel="stylesheet" href="../style.css"><script src="../app.js" defer></script></head><body class="document-page"><a class="skip" href="#main">Skip to content</a><header class="site-header"><div class="container nav-inner"><a class="brand" href="../index.html" aria-label="StarClaw home"><svg viewBox="0 0 40 40" aria-hidden="true" class="brand-mark"><path d="M20 2.5 24.5 12.2 35.2 9.5 30.2 19.2 37 27.9 26.2 28.4 20 37.5 15.5 27.8 4.8 30.5 9.8 20.8 3 12.1 13.8 11.6Z" fill="currentColor"/><path d="m20 12 2.5 5.5 5.5 2.5-5.5 2.5L20 28l-2.5-5.5L12 20l5.5-2.5Z" fill="var(--ink,#090d0b)"/></svg><span>starclaw<span class="brand-period">.</span></span></a><button class="menu-toggle" aria-label="Open navigation" aria-expanded="false" aria-controls="main-navigation"><span></span><span></span></button><nav id="main-navigation" aria-label="Main navigation"><a href="../index.html#workflows">What it does</a><a href="../security/index.html" aria-current="page">Your control</a><a href="../docs/index.html" >Docs</a><a class="github-link" href="https://github.com/mnemopay/starclaw" aria-label="StarClaw on GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.86c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.82.09-.65.35-1.08.64-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03a9.58 9.58 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg></a><a class="button button-small" href="../download/index.html">Get StarClaw <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.6"/></svg></a></nav></div></header><main id="main"><section class="document-hero container"><span class="eyebrow">STARCLAW / REAL RUN</span><h1>A real bug.<br><span>A signed record.</span></h1><p>Not a script. A real model worked on a real repository, asked before every risky step, and left a log you can check yourself.</p></section>
+<div class="container document-layout"><aside class="document-sidebar"><span class="mono">ON THIS PAGE</span><a href="#what">What ran</a><a href="#result">Result</a><a href="#approvals">Approvals</a><a href="#patch">The patch</a><a href="#verify">Verify it</a><a href="#limits">Honest limits</a></aside><article class="document-content">
+<div class="callout warn"><p><strong>Who approved:</strong> every human-approval step in this run was decided by Claude acting for the maintainer, after reading each request. Not by an end user, and not by the maintainer in person.</p></div>
+<h2 id="what">What ran</h2>
+<ul>
+<li><strong>Engine:</strong> StarClaw 2.0.0-alpha.10, process-permission sandbox (Docker was off).</li>
+<li><strong>Model:</strong> Claude Sonnet 5.5 via OpenRouter. One attempt. Model spend: about $0.10.</li>
+<li><strong>Repository:</strong> <a href="https://github.com/mnemopay/mnemopay-sdk/tree/5366c69">mnemopay/mnemopay-sdk @ 5366c69</a> (v1.17.0).</li>
+<li><strong>Bug:</strong> <code>verifyBundle()</code> accepted a tampered audit bundle whose last event was duplicated, when the event count was odd. The project's own docs admitted it.</li>
+<li><strong>Task given:</strong> fix it with the smallest safe change, keep valid bundles verifying, don't change how the Merkle root is computed, and add a test.</li>
+</ul>
+<h2 id="result">Result</h2>
+<ul>
+<li>The agent changed <code>src/governance/audit-chain.ts</code> (a new <code>sequence_mismatch</code> check after the unchanged root check) and added a test to <code>tests/audit-chain.test.ts</code>.</li>
+<li>The new test <strong>fails on the original code</strong> (1 failed | 13 passed (14)) and <strong>passes with the patch</strong> (14 passed (14)).</li>
+<li>Full SDK suite with the patch: 1454 passed, 3 skipped, 0 failed.</li>
+<li>The job itself ended on a denial: its last step wanted to run the tests inside a Docker container, Docker was off, so that step was denied. Both files had already been written. The tests above were run afterwards, outside StarClaw.</li>
+</ul>
+<h2 id="approvals">Approvals</h2>
+<p>4 approved by Claude acting for the maintainer (2 sandbox runs, 2 file writes), 1 denied (container test run; Docker was off). File reads inside the workspace were allowed by policy without asking. All 14 decisions are in the signed log below.</p>
+<h2 id="patch">The patch, exactly as written</h2>
+<pre><code>diff --git a/src/governance/audit-chain.ts b/src/governance/audit-chain.ts
+index 5616250..04272bb 100644
+--- a/src/governance/audit-chain.ts
++++ b/src/governance/audit-chain.ts
+@@ -226,7 +226,7 @@ export interface VerifyBundleOptions {
+ export function verifyBundle(
+   bundle: ChainBundle,
+   options: VerifyBundleOptions = {},
+-): { ok: true } | { ok: false; reason: &quot;root_mismatch&quot; | &quot;bad_event_signature&quot;; index?: number } {
++): { ok: true } | { ok: false; reason: &quot;root_mismatch&quot; | &quot;bad_event_signature&quot; | &quot;sequence_mismatch&quot;; index?: number } {
+   if (bundle.events.length === 0) {
+     return bundle.merkle_root === &quot;&quot; ? { ok: true } : { ok: false, reason: &quot;root_mismatch&quot; };
+   }
+@@ -242,6 +242,18 @@ export function verifyBundle(
+   }
+   if (layer[0] !== bundle.merkle_root) return { ok: false, reason: &quot;root_mismatch&quot; };
+ 
++  // The Merkle tree pads an odd layer by repeating the last leaf, so a bundle
++  // whose last event was duplicated can hash to the same root. AuditChain
++  // assigns consecutive sequence numbers, so require them here. The root
++  // computation is unchanged.
++  const firstSeq = bundle.events[0]!.sequence;
++  for (let i = 0; i &lt; bundle.events.length; i++) {
++    const seq = bundle.events[i]!.sequence;
++    if (typeof seq !== &quot;number&quot; || seq !== firstSeq + i) {
++      return { ok: false, reason: &quot;sequence_mismatch&quot;, index: i };
++    }
++  }
++
+   if (options.verifyEventSignature) {
+     for (let i = 0; i &lt; bundle.events.length; i++) {
+       const ev = bundle.events[i]!;
+diff --git a/tests/audit-chain.test.ts b/tests/audit-chain.test.ts
+index 50b41fe..a3cdcb9 100644
+--- a/tests/audit-chain.test.ts
++++ b/tests/audit-chain.test.ts
+@@ -168,3 +168,33 @@ describe(&quot;AuditChain — file-backed&quot;, () =&gt; {
+     expect(verifyBundle(bundle).ok).toBe(true);
+   });
+ });
++
++describe(&quot;verifyBundle duplicated-last-event tampering&quot;, () =&gt; {
++  function buildChain(count: number, sequence_start?: number) {
++    const chain = new AuditChain(sequence_start === undefined ? {} : { sequence_start });
++    for (let i = 0; i &lt; count; i++) chain.emit(&quot;test.event&quot;, { i });
++    return chain;
++  }
++
++  it(&quot;rejects a bundle whose last event was duplicated (odd count)&quot;, () =&gt; {
++    const bundle = buildChain(3).toBundle();
++    expect(verifyBundle(bundle).ok).toBe(true);
++
++    const tampered = {
++      ...bundle,
++      events: [...bundle.events, bundle.events[bundle.events.length - 1]!],
++    };
++    // Same root: this is exactly why the Merkle check alone cannot catch it.
++    expect(tampered.merkle_root).toBe(bundle.merkle_root);
++    const result = verifyBundle(tampered);
++    expect(result.ok).toBe(false);
++    if (!result.ok) expect(result.reason).toBe(&quot;sequence_mismatch&quot;);
++  });
++
++  it(&quot;still verifies untampered bundles (odd, even, single, custom start)&quot;, () =&gt; {
++    for (const n of [1, 2, 3, 4, 5, 7]) {
++      expect(verifyBundle(buildChain(n).toBundle()).ok).toBe(true);
++    }
++    expect(verifyBundle(buildChain(3, 100).toBundle()).ok).toBe(true);
++  });
++});
+</code></pre>
+<h2 id="verify">Verify it in your browser</h2>
+<p>This checks all 61 records: each record's hash, the hash chain, each Ed25519 signature, and the signed checkpoint, against the run's public key <code>9df951c0280dff79cbbbe058691b1a726273d1cfa38fe3965f50fe6c85434c46</code>. Then it flips one recorded human approval in a copy and shows that the check fails.</p>
+<p><button type="button" class="button" id="verify-real">Verify the real log</button> <button type="button" class="button" id="tamper-real">Change one approval, then verify</button></p>
+<p id="verify-status" role="status" aria-live="polite">Not checked yet.</p>
+<p><a href="../editorial/real-run.json" download>Download the signed run (JSON) ↗</a> · <a href="https://github.com/mnemopay/starclaw/tree/demo/real-run-alpha10/demo/real-run-alpha10/openrouter">All evidence on GitHub (attempt logs, test output, Article 12 export) ↗</a></p>
+<h2 id="limits">Honest limits</h2>
+<ul>
+<li>One task, one run. It shows the agent can produce a patch worth approving here; it doesn't prove it will on your repository.</li>
+<li>On the free Groq models the same task has not succeeded yet (the run reaches the work and fails safely, writing nothing). Use a strong model for coding work.</li>
+<li>StarClaw is alpha software and does not prevent prompt injection. Read the <a href="../security/index.html">security model</a>.</li>
+</ul>
+</article></div>
+<script src="verify.js" defer></script>
+</main><footer class="site-footer"><div class="container"><div class="footer-top"><a class="brand" href="../index.html"><svg viewBox="0 0 40 40" aria-hidden="true" class="brand-mark"><path d="M20 2.5 24.5 12.2 35.2 9.5 30.2 19.2 37 27.9 26.2 28.4 20 37.5 15.5 27.8 4.8 30.5 9.8 20.8 3 12.1 13.8 11.6Z" fill="currentColor"/><path d="m20 12 2.5 5.5 5.5 2.5-5.5 2.5L20 28l-2.5-5.5L12 20l5.5-2.5Z" fill="var(--ink,#090d0b)"/></svg><span>starclaw<span class="brand-period">.</span></span></a><p>A little more autonomous.<br>A lot more possible.</p><div class="footer-links"><a href="https://github.com/mnemopay/starclaw">GitHub ↗</a><a href="../docs/index.html">Documentation</a><a href="../security/index.html">Security model</a><a href="mailto:hello@starclaw.dev">Say hello ↗</a></div></div><div class="footer-bottom"><span>© 2026 J&amp;B Enterprise LLC · Apache-2.0</span><span><i class="status-dot"></i> Built in the open. Still in alpha.</span><a href="mailto:security@starclaw.dev">Report a vulnerability ↗</a></div></div></footer></body></html>

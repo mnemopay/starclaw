@@ -24,12 +24,14 @@ function display(){
  document.querySelector('#detail').textContent=[r.data.class,r.data.allowed===true?'Allowed':r.data.allowed===false?'Denied':'',r.data.kind].filter(Boolean).join(' · ');
  document.querySelector('#digest').textContent=r.hash;paint();
 }
+const sources={real:document.querySelector('#source')?.innerHTML,scripted:'Scripted example · real engine, scripted model and approver · <a href="/editorial/#recorded-run">Walkthrough ↗</a> · <a href="/editorial/example-run.json">Source data ↗</a>'};
 function choose(){
- stop();records=runs[branch.value].records;slider.max=records.length-1;
+ stop();const src=document.querySelector('#source');if(src)src.innerHTML=branch.value==='real'?sources.real:sources.scripted;records=runs[branch.value].records;slider.max=records.length-1;
  slider.value=Math.max(0,records.findIndex(r=>r.type==='decision.result'&&r.data.class==='fs.write'));display();
 }
-fetch('/editorial/example-run.json').then(r=>{if(!r.ok)throw Error();return r.json()}).then(data=>{
- runs=data.runs;choose();slider.disabled=play.disabled=false;
+const load=u=>fetch(u).then(r=>{if(!r.ok)throw Error();return r.json()});
+Promise.all([load('/editorial/real-run.json'),load('/editorial/example-run.json')]).then(([real,example])=>{
+ runs={real:real.runs.real,approve:example.runs.approve,deny:example.runs.deny};choose();slider.disabled=play.disabled=false;
  branch.onchange=choose;slider.oninput=()=>{stop();display()};
  play.onclick=()=>{if(timer){stop();return}slider.value=0;display();play.textContent='Pause';timer=setInterval(()=>{slider.value=Number(slider.value)+1;display();if(Number(slider.value)>=records.length-1)stop()},550)};
  canvas.onclick=e=>{stop();slider.value=Math.min(records.length-1,Math.floor(e.offsetX/canvas.clientWidth*records.length));display()};
