@@ -1,6 +1,25 @@
 # Changelog
 
-## 2.0.0-alpha.12 (2026-11-20)
+## 2.0.0-alpha.13 (2026-11-21)
+
+**This is the first npm release since alpha.11: 2.0.0-alpha.12 was tagged and released on GitHub but never published to npm, so its changes (below) reach npm users with this version.**
+
+### Fixed
+* **Requests fit the provider's per-request limit.** On Groq's free tier (which counts input + `max_tokens` against ~8,000 tokens per minute) the replan after two file reads was 9,665 tokens and Groq answered HTTP 413 (alpha.12 real run). Each request is now fitted before it is sent: the largest earlier messages are shortened first, keeping head + tail around an explicit marker (`[N chars omitted to fit the model's request limit; re-read with tools.readFile({ path, startLine, endLine }) ...]`). The system prompt, the current instruction and the note after an observation (denials) are never cut. The output cap is lowered to what is left.
+* **HTTP 413 is recovered once.** A 413 (or a 400 `context_length_exceeded`) is a new `LlmError` kind `request-too-large`: the request is shrunk to 80% of the provider's stated limit and resent once; a second one fails with a message that names `llm.requestTokenLimit`.
+
+### Added
+* **`llm.requestTokenLimit`** (policy, optional, 2,000 to 2,000,000): most tokens (input estimate + max output) one request may carry. Default **7000 for provider `groq`**, no limit for other providers. Raise it on a paid Groq tier.
+* **`tools.readFile({ path, startLine, endLine })`**: 1-based inclusive line ranges, returning `totalLines`, so the model can fetch what a trim left out. Without a range it behaves as before.
+* Trims and resends are audited as `llm.retry` with `kind` `context-trimmed` / `request-too-large`, `omittedChars` and `limitTokens`.
+
+### Real run (default Groq, same goal, 1 attempt; branch `demo/real-run-alpha13`)
+* No more 413: the replan was fitted to 7000 tokens (6,399 chars of the observation trimmed) and accepted. The bug was still not fixed: Groq's `gpt-oss-120b` then wrote a program that does not parse (`Identifier 'AuditChain' has already been declared`) and could not repair it in 2 attempts; nothing was written, `success: false`, no memory note. Signed log: 27 records verify with the pinned key; changing the approval decision fails with `hash mismatch`. For code changes, use a stronger model.
+
+### Tests
+* 14 new (`tests/alpha13.test.ts`). Full suite 617/617 without Docker; the Docker container suites were not re-run for this release.
+
+## 2.0.0-alpha.12 (2026-11-20, GitHub release only; never published to npm)
 
 ### Fixed
 * **The top-level result is honest.** A program that returns `{ success: false }`, or a step that had a denied action (even one the program caught), is no longer reported as a successful goal; the program's result is kept on the failure. Sub-agents keep their contract (the parent receives the child's full result and decides). `ok: false` is deliberately not read as failure, because tool results such as `tools.spawnAgent`'s carry an `ok` field and are often returned verbatim.

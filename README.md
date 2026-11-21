@@ -8,7 +8,7 @@ StarClaw generates JavaScript, runs it in an isolated sandbox, and can inspect r
 the next step. **Capabilities pass through a policy engine** that allows, asks a human, or denies,
 with a signed, hash-chained audit record written before an approved action runs.
 
-> **Status: `2.0.0-alpha.12`, an alpha, on npm (`latest` and `next`); not yet recommended for customers.** See
+> **Status: `2.0.0-alpha.13`, an alpha, on npm (`latest` and `next`); not yet recommended for customers.** See
 > [Known limits](#known-limits) and [SECURITY.md](SECURITY.md) first. Install: the Windows installer from
 > [GitHub Releases](https://github.com/mnemopay/starclaw/releases), `curl -fsSL https://starclaw.dev/install.sh | bash` on
 > macOS/Linux, or `npm install -g starclaw` (Node 25.9+). Developed on Windows 11 x64; the installers are tested in CI
@@ -23,7 +23,7 @@ the untrusted content came from, and everything is provable afterwards.
 Requires **Node.js >= 25.9.0** (see [why](#why-node-259)).
 
 ```bash
-npm install -g starclaw       # 2.0.0-alpha.12 (latest); the macOS/Linux and Windows installers above bundle Node for you
+npm install -g starclaw       # 2.0.0-alpha.13 (latest); the macOS/Linux and Windows installers above bundle Node for you
 npx starclaw app              # guided setup picks a model you already have (Anthropic/OpenRouter/OpenAI key, or Ollama/LM Studio)
 npx starclaw sandbox build    # optional but recommended: builds the Docker sandbox image (needs Docker)
 npx starclaw doctor           # probes every isolation layer and prints what is blocked, which layer is ACTIVE and why
@@ -40,9 +40,11 @@ that proves it, on 2.0.0-alpha.10), **Claude Sonnet 5.5 via OpenRouter** wrote t
 bug in **one attempt** (10 cents). **Groq's free models failed before the first step** on alpha.10 (the model emitted
 native tool calls that Groq rejects). On 2.0.0-alpha.11 the default Groq setup runs the same job end to end with
 approvals, but in 2 of 2 attempts its program guessed the file's structure without reading it first, found nothing to
-patch and wrote nothing (it failed safely). Groq is the **free, fast option** when you have nothing else:
+patch and wrote nothing (it failed safely). On 2.0.0-alpha.13 it reads the files first and its requests fit Groq's
+free-tier limit (`llm.requestTokenLimit`, default 7000), but the program it wrote did not parse, so the bug was still
+not fixed. Groq is the **free, fast option** when you have nothing else:
 `export GROQ_API_KEY=...` (key at console.groq.com). Policies without an `llm` block still use Groq, so existing
-setups keep working. Evidence: branches `demo/real-run-alpha10` / `demo/real-run-alpha11`.
+setups keep working. Evidence: branches `demo/real-run-alpha10` / `demo/real-run-alpha11` / `demo/real-run-alpha13`.
 
 ## Quick start
 
