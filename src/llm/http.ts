@@ -3,7 +3,7 @@ import { redactString } from '../governance/canonical';
 export class LlmError extends Error {
   constructor(
     msg: string,
-    public readonly kind: 'http' | 'rate-limit' | 'malformed' | 'too-large' | 'network' | 'config' | 'output-limit',
+    public readonly kind: 'http' | 'rate-limit' | 'malformed' | 'too-large' | 'request-too-large' | 'network' | 'config' | 'output-limit',
     public readonly status?: number,
     public readonly retryAfterSeconds?: number,
   ) {
@@ -81,6 +81,10 @@ export async function postJson(o: PostJsonOptions): Promise<any> {
     const ra = Number(res.headers.get('retry-after'));
     throw new LlmError('LLM provider rate limit (HTTP 429)', 'rate-limit', 429, Number.isFinite(ra) && ra >= 0 ? Math.min(ra, 3600) : undefined);
   }
+  // The REQUEST was over the provider's per-request limit (Groq: 413 "Request too large ... Limit 8000, Requested 9665";
+  // OpenAI-style: 400 context_length_exceeded). Recoverable by sending less, so it gets its own kind.
+  if (res.status === 413 || (res.status === 400 && /request too large|reduce your message size|context_length_exceeded|maximum context length/i.test(text)))
+    throw new LlmError(`LLM provider rejected the request as too large (HTTP ${res.status}): ${scrub(text.slice(0, 300), o.secrets)}`, 'request-too-large', res.status);
   if (!res.ok) throw new LlmError(`LLM provider returned HTTP ${res.status}: ${scrub(text.slice(0, 300), o.secrets)}`, 'http', res.status);
   try {
     return JSON.parse(text);

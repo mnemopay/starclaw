@@ -81,6 +81,8 @@ export interface BrokerOptions {
 }
 
 const PathArgs = z.object({ path: z.string().min(1).max(1000) }).strict();
+/** startLine/endLine (1-based, inclusive) return part of a file: used to fetch what was trimmed from an earlier observation. */
+const ReadArgs = z.object({ path: z.string().min(1).max(1000), startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional() }).strict();
 const WriteArgs = z.object({ path: z.string().min(1).max(1000), content: z.string().max(MAX_WRITE_BYTES) }).strict();
 const FetchArgs = z.object({ url: z.string().min(1).max(4000), format: z.enum(['raw', 'text']).default('raw'), maxChars: z.number().int().min(200).max(100_000).default(20_000), maxLinks: z.number().int().min(0).max(50).default(20) }).strict();
 const SearchArgs = z.object({ query: z.string().min(1).max(300), limit: z.number().int().min(1).max(20).optional() }).strict();
@@ -193,7 +195,7 @@ export class Broker {
         if (!this.o.spawn) throw new Error('tools.spawnAgent is not available');
         return this.o.spawn(call.args);
       case 'readFile':
-        return this.readFile(PathArgs.parse(call.args));
+        return this.readFile(ReadArgs.parse(call.args));
       case 'listDir':
         return this.listDir(PathArgs.parse(call.args));
       case 'writeFile':
@@ -242,7 +244,7 @@ export class Broker {
     }
   }
 
-  private async readFile(a: { path: string }) {
+  private async readFile(a: { path: string; startLine?: number; endLine?: number }) {
     const { real, inWorkspace } = this.checkPath(a.path, false);
     const action: Action = { class: 'fs.read', target: real, inWorkspace, summary: `Read file ${real}` };
     return this.gov.governed(
@@ -261,7 +263,13 @@ export class Broker {
           const count = fs.readSync(fd, buf, 0, buf.length, 0);
           const bytes = buf.subarray(0, count);
           if (this.o.taintedFiles.has(real, bytes)) this.gov.taint.mark('tainted-file', real);
-          return { content: bytes.toString('utf8'), truncated: opened.size > MAX_FILE_BYTES };
+          const text = bytes.toString('utf8');
+          const truncated = opened.size > MAX_FILE_BYTES;
+          if (a.startLine === undefined && a.endLine === undefined) return { content: text, truncated };
+          const lines = text.split('\n');
+          const start = Math.min(a.startLine ?? 1, lines.length);
+          const end = Math.min(Math.max(a.endLine ?? lines.length, start), lines.length);
+          return { content: lines.slice(start - 1, end).join('\n'), truncated, startLine: start, endLine: end, totalLines: lines.length };
         } finally {
           fs.closeSync(fd);
         }

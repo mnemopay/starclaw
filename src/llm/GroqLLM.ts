@@ -11,6 +11,8 @@ export const GROQ_DEFAULTS = {
   baseUrl: 'https://api.groq.com/openai/v1',
   model: 'openai/gpt-oss-120b',
   smallModel: 'openai/gpt-oss-20b',
+  /** Groq's free tier counts input + max_tokens against ~8,000 tokens per minute per model; stay under it. */
+  requestTokenLimit: 7000,
   prices: {
     'openai/gpt-oss-120b': { inputCentsPerMTok: 15, outputCentsPerMTok: 60 },
     'openai/gpt-oss-20b': { inputCentsPerMTok: 8, outputCentsPerMTok: 30 },
@@ -32,7 +34,7 @@ export class GroqLLM extends BackendLLM {
     const price = opts.price ?? GROQ_DEFAULTS.prices[model];
     // An unknown small model is costed at the placeholder, never at the (cheaper) big-model price.
     const smallPrice = smallModel ? (opts.price ?? GROQ_DEFAULTS.prices[smallModel] ?? ASSUMED_PRICE) : undefined;
-    const cfg: BackendConfig = { ...opts, apiKey, model, smallModel, price, smallPrice, baseUrl: opts.baseUrl ?? GROQ_DEFAULTS.baseUrl };
+    const cfg: BackendConfig = { ...opts, apiKey, model, smallModel, price, smallPrice, baseUrl: opts.baseUrl ?? GROQ_DEFAULTS.baseUrl, requestTokenLimit: opts.requestTokenLimit ?? GROQ_DEFAULTS.requestTokenLimit };
     super(new GroqBackend(cfg), cfg);
   }
 }

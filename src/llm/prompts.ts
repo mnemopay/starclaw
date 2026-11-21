@@ -1,7 +1,7 @@
 /** Prompts are plain strings so they can be reviewed and tested. */
 export const TOOL_DOCS = `
 Built-in tools (the ONLY way to touch the outside world; every call is policy-checked and may require human approval):
-  await tools.readFile({ path })                 -> { content, truncated }
+  await tools.readFile({ path, startLine?, endLine? }) -> { content, truncated, totalLines? }  (lines are 1-based, inclusive)
   await tools.listDir({ path })                  -> [{ name, dir }]
   await tools.writeFile({ path, content })       -> writes inside ./workspace only
   await tools.editFile({ path, find, replace, expectCount?, expectSha256? })  -> exact find/replace inside ./workspace; shown to a human as a diff
