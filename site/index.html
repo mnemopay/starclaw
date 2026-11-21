@@ -1,97 +1,87 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StarClaw: an AI agent with a rulebook (alpha)</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2215%22 fill=%22none%22 stroke=%22currentColor%22 stroke-width=%222%22/%3E%3Cpath d=%22M16 5l3.1 7.1 7.7.7-5.8 5.1 1.7 7.5L16 21.4 9.3 25.4l1.7-7.5-5.8-5.1 7.7-.7z%22 fill=%22currentColor%22/%3E%3C/svg%3E">
-<meta name="description" content="StarClaw is an alpha, open-source AI agent that runs its own code in a sandbox, asks a human before risky actions, and keeps a signed log of what it did.">
-<meta name="color-scheme" content="light dark">
-<meta property="og:type" content="website">
-<meta property="og:title" content="StarClaw: an AI agent with a rulebook (alpha)">
-<meta property="og:description" content="StarClaw is an alpha, open-source AI agent that runs its own code in a sandbox, asks a human before risky actions, and keeps a signed log of what it did.">
-<meta property="og:site_name" content="StarClaw">
-<meta name="twitter:card" content="summary">
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#141815">
+  <meta name="description" content="StarClaw is an open-source agent for research, code changes, and scheduled checks. Explore a recorded run and verify its signed decisions.">
+  <title>StarClaw — An open-source agent for research, code and scheduled work</title>
+  <link rel="canonical" href="https://starclaw.dev/">
+<meta property="og:type" content="website"><meta property="og:site_name" content="StarClaw"><meta property="og:url" content="https://starclaw.dev/">
+<meta property="og:title" content="StarClaw — An open-source agent for research, code and scheduled work">
+<meta property="og:description" content="An open-source AI agent that asks before risky actions, runs its code in a sandbox, and keeps a signed, verifiable log of what it did.">
+<meta property="og:image" content="https://starclaw.dev/assets/films/identity.jpg"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://starclaw.dev/assets/films/identity.jpg">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="LLM summary">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[
+{"@type":"WebSite","@id":"https://starclaw.dev/#website","name":"StarClaw","url":"https://starclaw.dev/","publisher":{"@id":"https://starclaw.dev/#org"}},
+{"@type":"Organization","@id":"https://starclaw.dev/#org","name":"J&B Enterprise LLC","url":"https://starclaw.dev/","email":"hello@starclaw.dev","sameAs":["https://github.com/mnemopay/starclaw","https://www.npmjs.com/package/starclaw"]},
+{"@type":"SoftwareApplication","name":"StarClaw","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","softwareVersion":"2.0.0-alpha.9","license":"https://www.apache.org/licenses/LICENSE-2.0","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/mnemopay/starclaw/releases","installUrl":"https://starclaw.dev/install.sh","codeRepository":"https://github.com/mnemopay/starclaw","author":{"@id":"https://starclaw.dev/#org"},"description":"An open-source autonomous AI agent: every action is checked against a policy you control, risky actions are put to a human, generated code runs in a sandbox, and a signed hash-chained audit log records what happened. Developer alpha."},
+{"@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"What is StarClaw?","acceptedAnswer":{"@type":"Answer","text":"An open-source (Apache-2.0) AI agent that does research, code changes and scheduled work. Every action is checked against a policy that can allow, ask or deny; risky actions go to a human; and a signed, hash-chained audit log records each decision and action. It is a developer alpha."}},
+{"@type":"Question","name":"Does StarClaw prevent prompt injection?","acceptedAnswer":{"@type":"Answer","text":"No. It assumes hostile content can steer the model. Its controls limit what the model can do next: once untrusted content is in a session, sensitive actions need a human, and everything is recorded."}},
+{"@type":"Question","name":"How do I install StarClaw?","acceptedAnswer":{"@type":"Answer","text":"Windows: the installer from GitHub Releases. macOS and Linux: curl -fsSL https://starclaw.dev/install.sh | bash. Or with Node.js 25.9+: npm install -g starclaw. The first run opens a guided setup that detects local Ollama or LM Studio models or takes a Groq, Anthropic, OpenAI or OpenRouter key."}},
+{"@type":"Question","name":"Which AI models does StarClaw work with?","acceptedAnswer":{"@type":"Answer","text":"Groq, Anthropic, OpenAI, OpenRouter, and local models through Ollama or LM Studio (any OpenAI-compatible endpoint)."}},
+{"@type":"Question","name":"Can StarClaw use MCP servers?","acceptedAnswer":{"@type":"Answer","text":"Yes, servers you declare in the policy. Every MCP tool call is a governed action that defaults to asking you, results are treated as untrusted, and the agent cannot add servers itself."}}]}
+]}</script>
+  <link rel="icon" href="/assets/mark.svg">
+  <link rel="stylesheet" href="/assets/fonts/fonts.css">
+  <link rel="stylesheet" href="/directions/base.css">
+  <link rel="stylesheet" href="/directions/signal/page.css">
+  <script defer src="/directions/signal/scope.js"></script>
 </head>
-<body>
-<a class="skip" href="#main">Skip to content</a>
-<div class="alpha" role="note">
-  <div class="wrap"><strong>Alpha software.</strong> StarClaw 2.x is an alpha and is not recommended for customers, production use or anyone who needs a guarantee.</div>
-</div>
-<header class="site">
-  <div class="wrap">
-    <a class="brand" href="index.html"><svg viewBox="0 0 32 32" role="img" aria-label="StarClaw logo" focusable="false"><circle cx="16" cy="16" r="15" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 5l3.1 7.1 7.7.7-5.8 5.1 1.7 7.5L16 21.4 9.3 25.4l1.7-7.5-5.8-5.1 7.7-.7z" fill="currentColor"/></svg><span>StarClaw <span class="muted">alpha</span></span></a>
-    <nav aria-label="Main">
-      <ul>
-          <li><a href="index.html" aria-current="page">Home</a></li>
-          <li><a href="security/index.html">Security</a></li>
-          <li><a href="docs/index.html">Docs</a></li>
-          <li><a href="download/index.html">Download</a></li>
-      </ul>
+<body class="signal">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <a class="brand" href="/">✳ starclaw.</a>
+    <nav aria-label="Main navigation">
+      <a href="/docs/">Docs</a>
+      <a href="/security/">Security</a>
+      <a class="get" href="/download/">Install ↗</a>
     </nav>
-  </div>
-</header>
-<main id="main">
-  <div class="wrap">
-
-    <h1>An AI agent that has to ask first</h1>
-    <p class="lead">StarClaw is an open-source AI agent that writes and runs its own code, but every action it takes is checked against a policy you control, risky ones are put to a human, and everything is written to a signed log.</p>
-    <div class="callout warn">
-      <p><strong>Status: alpha.</strong> The latest version on npm is <code>2.0.0-alpha.7</code>, the same as the source on GitHub. It is tested on Windows 11 with Node.js 25.9.0 only. It does <strong>not</strong> stop prompt injection. Read <a href="security/index.html">the security page</a> before you try it.</p>
+  </header>
+  <main id="main">
+    <div class="console">
+      <section class="intro">
+        <div><p class="micro">StarClaw / Run inspector</p><h1>Signal Room<span>.</span></h1></div>
+        <div class="brief">
+          <p>An open-source agent for research, code changes, and scheduled checks. Follow a file write from request to signed decision.</p>
+          <a href="/download/">Install the alpha ↗</a>
+        </div>
+      </section>
+      <section class="scope" aria-label="Recorded run explorer">
+        <div class="scopehead">
+          <b>Event sequence</b>
+          <label>Recorded outcome <select id="branch"><option value="approve">Approved</option><option value="deny">Denied</option></select></label>
+        </div>
+        <div class="plot"><canvas aria-hidden="true"></canvas></div>
+        <div class="controls">
+          <button type="button" id="scan" disabled>Play sequence</button>
+          <label for="event">Event</label>
+          <input type="range" min="0" max="19" value="13" id="event" disabled>
+          <output id="position" for="event">—</output>
+        </div>
+        <div class="readout">
+          <div><p class="micro">Selected event</p><h2 id="type">Recorded file write</h2><p id="detail"></p></div>
+          <div><p class="micro">Record hash</p><code id="digest"></code></div>
+        </div>
+      </section>
+      <p class="source">Real engine · Scripted model and approver · <a href="/editorial/example-run.json">Source data ↗</a></p>
     </div>
-
-    <h2>Who it is for</h2>
-    <p>Developers who are comfortable with a command line and Node.js, and who want to try an agent that is built around limits and records. It is not a finished product for customers. The project itself says it is "not yet recommended for customers".</p>
-
-    <h2>Quick start</h2>
-    <p>Three steps, taken from the project README. You need Node.js 25.9.0 or newer.</p>
-    <ol>
-      <li>
-        <strong>Install the alpha and set a model key.</strong> The bundled model backend is Groq; the model is an interface, so you can bring your own.
-        <pre><code>npm install starclaw@next
-export GROQ_API_KEY=...</code></pre>
-        Plain <code>npm install starclaw</code> gives the old 1.0.0 package, which is deprecated and broken. Do not use it.
-      </li>
-      <li>
-        <strong>Write the default policy.</strong> It is conservative.
-        <pre><code>npx starclaw policy init</code></pre>
-      </li>
-      <li>
-        <strong>Give it a goal.</strong>
-        <pre><code>npx starclaw run "summarise the headlines on https://example.com"</code></pre>
-      </li>
-    </ol>
-    <p>With the default policy, StarClaw asks you before it runs code, writes a file, uses the network, saves memory, saves a skill or spends money. The only thing it does silently is read files inside <code>./workspace</code>. If nobody can answer (no terminal, or <code>--non-interactive</code>), anything that needs approval is denied.</p>
-    <p>Optional but recommended: <code>npx starclaw sandbox build</code> builds the Docker sandbox image (needs Docker), and <code>npx starclaw doctor</code> tests each isolation layer on your machine and tells you which one is active and why.</p>
-
-    <h2>See it work in two minutes, offline</h2>
-    <pre><code>git clone https://github.com/mnemopay/starclaw &amp;&amp; cd starclaw &amp;&amp; npm install &amp;&amp; npm run build
-node dist/cli.js sandbox build    # needs Docker
-npm run demo                      # no API key, no network, no real money</code></pre>
-    <p>A scripted model plays an agent that obeys instructions hidden in a web page. You watch StarClaw stop it from leaking data and from paying an attacker, even though the policy allows web access and spending. Then the demo checks the signed log, edits one record, and shows the check fail.</p>
-    <p><strong>What is real:</strong> the sandbox, the policy engine (the Governor), taint tracking, the approval flow and the audit log. <strong>What is fake:</strong> the language model (a script) and the payment rail (a counter). So the demo does <em>not</em> prove that a real model cannot be steered. It can. Without Docker the demo still runs, using only the Node permission layer.</p>
-
-    <h2>What it does</h2>
-    <ul>
-      <li><strong>A governed agent.</strong> You give a goal. A language model writes JavaScript. StarClaw runs it, and every file, network or spending request goes through a policy that can allow, ask a human, or deny. Invalid policy files make it refuse to start.</li>
-      <li><strong>Layered sandbox.</strong> Generated code runs in a locked-down Docker container (no network, read-only, no capabilities, no mounts) with Node's permission model inside. Without Docker it uses the Node permission model alone, which the docs call a "seat belt", not a VM. At startup each layer is tested; if the chosen layer fails its test, StarClaw refuses to run generated code.</li>
-      <li><strong>Approval channels.</strong> Terminal, Telegram, Slack, Discord and an HTTP API. Only the owner can approve (by owner id on Telegram, Slack and Discord; by bearer key on HTTP). A timeout, an error, or any answer other than an exact approval counts as a denial. Slack and Discord are off by default and have been tested only against local fakes, not the real services.</li>
-      <li><strong>Taint tracking.</strong> Content from the web or from other people marks the session as tainted. While tainted, running commands, network access, spending and saving skills can never be auto-allowed. A human has to approve, and is shown where the untrusted content came from. This is coarse and incomplete; see the security page.</li>
-      <li><strong>Signed, tamper-evident audit log.</strong> Each record is hash-chained and Ed25519-signed, and written before the action runs. <code>starclaw audit verify</code> checks it offline and detects edits, deletions, reordering and truncation. Anyone who can read the signing key can forge the log.</li>
-      <li><strong>Scheduler.</strong> Unattended jobs, including "heartbeat" jobs that message you only if something needs attention. They run only while <code>starclaw daemon</code> is running. Unattended runs cannot run host commands, and an approval request nobody answers is a denial.</li>
-      <li><strong>Governed browser tools.</strong> Off by default. They drive the MnemoPay Native Browser through its control API, limited to domains you list. Opening a tab always needs a human. Tested only against a fake of that API, not the real browser.</li>
-      <li><strong>Spend caps.</strong> Per-action and total caps, in whole cents, enforced outside the generated code. A human approving an amount cannot push it past the cap. Default caps are 0. <strong>No payment rail ships</strong>, so real payments are not implemented and not tested.</li>
-    </ul>
-    <p>More detail, including what each piece does not cover, is on the <a href="security/index.html">security page</a> and in the <a href="docs/index.html">docs</a>.</p>
-
-  </div>
-</main>
-<footer class="site">
-  <div class="wrap">
-    <p>StarClaw is alpha software under the <a href="https://github.com/mnemopay/starclaw/blob/main/LICENSE">Apache-2.0 license</a>. Source: <a href="https://github.com/mnemopay/starclaw">github.com/mnemopay/starclaw</a>.</p>
-    <p>Copyright (c) 2026 Jeremiah Omiagbo / J&amp;B Enterprise LLC. This site has no scripts, no cookies, no forms and no tracking.</p>
-  </div>
-</footer>
+    <section class="bench">
+      <div>
+        <p class="micro">Playback</p><h2>Check the<br>signature<span>.</span></h2>
+        <p>Watch the browser verify the approved run and reject a changed record. Then inspect the same example yourself.</p>
+        <a href="/editorial/#recorded-run">Open the verifier ↗</a>
+      </div>
+      <video controls muted playsinline preload="none" poster="/assets/films/run.jpg" src="/assets/films/run.mp4" aria-label="Signed log verification walkthrough">
+        <track kind="captions" label="English" srclang="en" src="/assets/films/run.vtt">
+      </video>
+    </section>
+  </main>
+  <footer>
+    <a href="https://github.com/mnemopay/starclaw">Source on GitHub ↗</a>
+    <span>Open source · Developer alpha</span>
+    <a href="/security/">Security model ↗</a>
+  </footer>
 </body>
 </html>

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StarClaw — An agent that works. On your terms.</title>
+<meta name="description" content="Research, edit files, and run scheduled tasks with an open-source agent. Explore a recorded task, its approval request, and its verifiable audit log.">
+<meta name="theme-color" content="#f4f1e9"><link rel="icon" href="../assets/mark.svg">
+<link rel="stylesheet" href="../assets/fonts/fonts.css"><link rel="stylesheet" href="editorial.css"><script src="editorial.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="masthead">
+  <a class="brand" href="index.html"><span class="brand-star">✳</span> starclaw<span class="brand-dot">.</span></a>
+  <span class="edition">Open-source autonomous agent</span>
+  <nav aria-label="Main navigation"><a href="#recorded-run">A recorded run</a><a href="../security/index.html">Security model</a><a href="../docs/index.html">Documentation ↗</a></nav>
+  <a class="nav-cta" href="../download/index.html">Install StarClaw <span>↗</span></a>
+</header>
+<main id="main">
+<section class="hero">
+  <div class="hero-kicker"><span class="tiny-star">✳</span> Open source · Developer alpha</div>
+  <h1>An agent that works.<br><em>On your terms.</em></h1>
+  <p class="hero-description">Research a topic. Change a file. Check a watchlist.<br>StarClaw runs the task. Your policy decides what it can do.</p>
+  <div class="hero-actions"><a class="button" href="../download/index.html">Install the alpha <span>↗</span></a><a class="underlined" href="#recorded-run">Inspect a recorded run <span>↓</span></a></div>
+</section>
+<section class="run-example" id="recorded-run" aria-labelledby="run-title">
+  <div class="run-intro"><div><p class="section-label">A recorded run</p><h2 id="run-title">Read the notes. Write a brief.<br><em>Ask before saving it.</em></h2></div><p>Real engine. Scripted model and approver.<br>This page replays two recorded outcomes.<br>No agent runs in your browser.</p></div>
+  <div class="run-book">
+    <div class="run-book-top"><span class="run-book-name">launch-brief / example task</span><a href="example-run.json" download>Download the signed example ↗</a></div>
+    <div class="run-layout">
+      <div class="run-steps" role="tablist" aria-label="Inspect the recorded task" aria-orientation="vertical">
+        <button type="button" role="tab" id="tab-task" aria-controls="panel-task" aria-selected="false" tabindex="-1" data-stage="task"><span class="step-number">1</span><span><strong>The task</strong><small>Notes supplied in a file</small></span></button>
+        <button type="button" role="tab" id="tab-approval" aria-controls="panel-approval" aria-selected="true" data-stage="approval"><span class="step-number">2</span><span><strong>The checkpoint</strong><small>A file write needs approval</small></span></button>
+        <button type="button" role="tab" id="tab-receipt" aria-controls="panel-receipt" aria-selected="false" tabindex="-1" data-stage="receipt"><span class="step-number">3</span><span><strong>The record</strong><small>Inspect and verify the log</small></span></button>
+        <p class="run-step-note">The model proposes.<br>The policy checks.<br>The action is recorded.</p>
+      </div>
+      <div class="run-panels">
+        <section id="panel-task" role="tabpanel" aria-labelledby="tab-task" tabindex="0" hidden>
+          <div class="panel-heading"><span class="document-icon" aria-hidden="true">↳</span><div><p class="panel-label">The goal</p><h3>Turn these notes into a brief.</h3></div></div>
+          <p class="task-quote" id="recorded-goal">Read launch-notes.txt and save the product facts as launch-brief.md.</p>
+          <div class="file-sheet"><div class="file-sheet-title">launch-notes.txt <span>Input file</span></div><pre id="recorded-input">Loading the recorded input…</pre></div>
+          <details class="program-details"><summary>Read the program supplied by the scripted model</summary><pre id="recorded-code"></pre></details>
+          <button class="inline-action" type="button" data-go-approval>Inspect the proposed write <span>→</span></button>
+        </section>
+        <section id="panel-approval" role="tabpanel" aria-labelledby="tab-approval" tabindex="0">
+          <div class="panel-heading"><span class="checkpoint-icon" aria-hidden="true">↗</span><div><p class="panel-label">Approval required</p><h3>Save launch-brief.md?</h3></div><span class="action-class">fs.write</span></div>
+          <p class="checkpoint-context">The notes came from outside this run. Their content is untrusted. The approval request shows where it came from and exactly what the agent wants to write.</p>
+          <div class="file-sheet"><div class="file-sheet-title">launch-brief.md <span>Proposed contents</span></div><pre id="proposed-content"># StarClaw / launch brief
+
+- Open-source agent for research, code changes, and scheduled work.
+- Actions pass through a policy that can allow, ask, or deny.
+- Audit records are signed and hash-chained.
+- Developer alpha. Does not prevent prompt injection.</pre></div>
+          <div class="decision-actions"><button class="approve-button" type="button" data-decision="approve" disabled>Replay approval <span>→</span></button><button class="deny-button" type="button" data-decision="deny" disabled>Replay denial</button><span>Replay only. Neither button writes a file.</span></div>
+          <details class="program-details"><summary>Inspect the recorded approval request</summary><pre id="approval-request"></pre></details>
+        </section>
+        <section id="panel-receipt" role="tabpanel" aria-labelledby="tab-receipt" tabindex="0" hidden>
+          <div class="panel-heading"><span class="receipt-icon" aria-hidden="true">✓</span><div><p class="panel-label">The recorded outcome</p><h3 id="receipt-title">Write approved.</h3></div><button class="reset-example" type="button" data-go-approval>Back to the checkpoint ↶</button></div>
+          <p id="receipt-description" class="checkpoint-context">The engine wrote the file after the scripted approval. The audit log records the decision and the action.</p>
+          <div class="receipt-fields"><div><span>Action</span><strong>fs.write · launch-brief.md</strong></div><div><span>Decision</span><strong id="receipt-decision">Approved by scripted approver</strong></div><div><span>File created</span><strong id="receipt-file">Yes</strong></div><div><span>Record hash</span><code id="receipt-hash">Loading…</code></div></div>
+          <div class="verification-actions"><button class="verify-button" type="button" id="verify-log" disabled>Verify the signed log <span>↗</span></button><button class="tamper-button" type="button" id="test-tamper" disabled>Test a changed record</button></div>
+          <p class="verification-status" id="verification-status" role="status" aria-live="polite">The verifier checks record hashes, the chain, Ed25519 signatures, and the signed checkpoint.</p>
+          <details class="program-details"><summary>Inspect the signed decision record</summary><pre id="signed-record"></pre></details>
+          <p class="verification-limit">The public key is bundled with this example. This demonstrates verification, not independent proof that this website or the agent is secure.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+  <p class="example-provenance" id="example-provenance">Generated with StarClaw’s process permission sandbox. No model API, network access, or real payments.</p>
+  <noscript><p>JavaScript enables the replay and in-browser signature checks. <a href="example-run.json">Read the recorded data</a> or <a href="../docs/index.html#demo">run the offline demo</a>.</p></noscript>
+</section>
+<section class="possibilities" id="possibilities">
+  <div class="section-label"><span>Other tasks for the same agent</span></div>
+  <div class="section-heading"><h2>From research<br><em>to a running check.</em></h2><p>Give it a goal. Configure its tools.<br>Set the permissions for the work.</p></div>
+  <div class="work-list">
+    <a href="../docs/index.html"><span class="work-number">01</span><div><h3>Compare sources. Write a brief.</h3><p>Search the web, read source pages, and save findings in your workspace. Network and file access follow your policy.</p></div><span class="tool-path">Search → read → write</span><span class="work-arrow">↗</span></a>
+    <a href="../docs/index.html"><span class="work-number">02</span><div><h3>Patch files. Run the checks.</h3><p>Inspect a repository, prepare a diff, and run project commands in the container shell. Review the change before applying it.</p></div><span class="tool-path">Inspect → edit → check</span><span class="work-arrow">↗</span></a>
+    <a href="../docs/index.html"><span class="work-number">03</span><div><h3>Check a source on a schedule.</h3><p>Run recurring checks while the daemon is online. Heartbeat jobs can notify you when something needs attention.</p></div><span class="tool-path">Schedule → check → notify</span><span class="work-arrow">↗</span></a>
+  </div>
+</section>
+<section class="ownership">
+  <div class="execution-trace"><p class="panel-label">The sequence in this recorded run</p><h3>The decision comes<br><em>before the write.</em></h3><ol><li><span>Request</span><code>decision.request</code><small>Proposed contents and provenance recorded</small></li><li><span>Decision</span><code>decision.result</code><small>Approval or denial recorded</small></li><li><span>Action</span><code>action.result</code><small>Write result recorded after execution</small></li></ol><p>A denial has no file-write result. You can inspect both logs in the example above.</p></div>
+  <div class="ownership-copy"><span class="section-label">Controls outside the model</span><h2>Instructions can drift.<br><em>The policy still applies.</em></h2><p>StarClaw assumes hostile content can steer a model. Its controls govern what that model can do next.</p>
+    <div class="ownership-points"><div><span>01</span><p><strong>Execution is isolated.</strong> Generated code reaches files and the network through brokered tools.</p></div><div><span>02</span><p><strong>Permissions are explicit.</strong> Policies allow, ask, or deny. Untrusted content can escalate sensitive actions to approval.</p></div><div><span>03</span><p><strong>Records are verifiable.</strong> Hash chains and signatures make edits detectable when the signing key remains secret.</p></div></div>
+    <a class="underlined" href="../security/index.html">Read the full security model <span>↗</span></a>
+  </div>
+</section>
+<section class="manifesto"><span class="section-label">Run it on your machine</span><h2>Try the agent.<br><em>Read what it did.</em></h2><code class="install-line">npm install -g starclaw</code><a class="button" href="../download/index.html">Get the installation steps <span>↗</span></a><div class="manifesto-notes"><span>Apache-2.0</span><span>Your choice of model</span><span>Developer alpha</span></div></section>
+<div class="honest-note"><span>ONE IMPORTANT NOTE.</span><p>StarClaw is alpha software. It does not prevent prompt injection or guarantee safe outcomes. <a href="../security/index.html">Understand the limits ↗</a></p></div>
+</main>
+<footer><div class="footer-brand"><a class="brand" href="index.html"><span class="brand-star">✳</span> starclaw<span class="brand-dot">.</span></a><p>Run locally.<br>Inspect the source.</p></div><div class="footer-links"><a href="https://github.com/mnemopay/starclaw">GitHub ↗</a><a href="../docs/index.html">Documentation ↗</a><a href="../security/index.html">Security ↗</a><a href="mailto:hello@starclaw.dev">Say hello ↗</a></div><div class="footer-bottom"><span>© 2026 J&amp;B Enterprise LLC. Apache-2.0.</span></div></footer>
+</body></html>
