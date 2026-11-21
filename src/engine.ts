@@ -78,15 +78,16 @@ export interface BootReport {
 const MAX_FIX_ATTEMPTS = 2;
 
 /**
- * A program that ran to completion but returned `{ success: false }` or `{ ok: false }` did not achieve the goal.
+ * A program that ran to completion but returned `{ success: false }` did not achieve the goal. (`ok: false` is NOT
+ * read: tool results such as tools.spawnAgent's carry an `ok` field and are often returned verbatim as data.)
  * Returns a short reason, or undefined when the value does not report failure.
  */
 export function programReportedFailure(value: unknown): string | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const v = value as Record<string, unknown>;
-  if (v.success !== false && v.ok !== false) return undefined;
+  if (v.success !== false) return undefined;
   const why = [v.error, v.reason, v.message].find((x) => typeof x === 'string' && x.trim());
-  return (typeof why === 'string' ? why : v.success === false ? 'success: false' : 'ok: false').slice(0, 500);
+  return (typeof why === 'string' ? why : 'success: false').slice(0, 500);
 }
 
 /** Everything one run needs that must NOT be shared between an owner conversation and an unattended job. */
@@ -659,7 +660,7 @@ export class StarClawEngine {
           const effect = !readOnly.has(call.name);
           const callKey = sha256Hex(canonicalize(call));
           const key = effect ? callKey : '';
-          if (deniedKeys.has(callKey)) {
+          if (continueAfterDeny && deniedKeys.has(callKey)) {
             ctx.audit.append('agent.denied-repeat', { tool: call.name, payloadSha256: callKey });
             throw new Error(`${call.name} refused: this exact action was already denied in this job, so it is not asked again. Choose a different approach.`);
           }
@@ -731,7 +732,8 @@ export class StarClawEngine {
         const continuation = run.ok && run.value && typeof run.value === 'object' && (run.value as any).__starclaw === 'continue';
         const observation = JSON.stringify({ ok: run.ok, result: run.value, error: run.error, stdout: run.stdout }).slice(0, 12000);
         // A step with a denied action never counts as a finished goal, even if the program caught the denial and returned.
-        if (denied) {
+        // (A sub-agent keeps its contract: its parent receives the child's full result and decides.)
+        if (denied && (!sub || !run.ok || continuation)) {
           if (continueAfterDeny && step + 1 < this.policy.agent.maxSteps) {
             ctx.audit.append('agent.denied-replan', { step: step + 1, by: denied.by, reason: denied.reason.slice(0, 300), deniedActions: deniedThisStep.length });
             await replan(step, observation, `These actions were DENIED and will not be allowed if proposed again: ${deniedThisStep.join('; ').slice(0, 1500)}. Continue the original goal another way, or return a result that says plainly what could not be done. ${CONTINUE_NOTE}`, { denied: true });
@@ -751,8 +753,8 @@ export class StarClawEngine {
       }
       if (!run) return fail('task', 'agent step limit exceeded before completion');
 
-      // The program can finish normally and still report that the goal failed ({ success: false } / { ok: false }).
-      const reported = programReportedFailure(run.value);
+      // The program can finish normally and still report that the goal failed ({ success: false }).
+      const reported = sub ? undefined : programReportedFailure(run.value);
       if (reported) {
         ctx.history.push({ role: 'assistant', content: `The program reported that the goal was not achieved: ${reported}` });
         return fail('task', `the program reported failure: ${reported}`, { result: run.value, stdout: run.stdout });

@@ -26,9 +26,9 @@ const audit = (e: StarClawEngine) => fs.readFileSync(path.join(e.stateDir, 'audi
 const memoryWrites = (a: ReturnType<typeof ApprovalLog>) => a.filter((r) => r.action.class === 'memory.write');
 const ApprovalLog = (approver: ScriptedApprover) => approver.seen;
 
-test('programReportedFailure reads success:false / ok:false and nothing else', () => {
+test('programReportedFailure reads success:false and nothing else (not ok:false, which tool results carry)', () => {
   assert.equal(programReportedFailure({ success: false, error: 'tests failed' }), 'tests failed');
-  assert.equal(programReportedFailure({ ok: false }), 'ok: false');
+  assert.equal(programReportedFailure({ ok: false, err: 'child refused' }), undefined);
   assert.equal(programReportedFailure({ success: false }), 'success: false');
   assert.equal(programReportedFailure({ success: true }), undefined);
   assert.equal(programReportedFailure({ total: 3 }), undefined);
