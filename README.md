@@ -8,7 +8,7 @@ StarClaw generates JavaScript, runs it in an isolated sandbox, and can inspect r
 the next step. **Capabilities pass through a policy engine** that allows, asks a human, or denies,
 with a signed, hash-chained audit record written before an approved action runs.
 
-> **Status: `2.0.0-alpha.13`, an alpha, on npm (`latest` and `next`); not yet recommended for customers.** See
+> **Status: `2.0.0-alpha.14`, an alpha, on npm (`latest` and `next`); not yet recommended for customers.** See
 > [Known limits](#known-limits) and [SECURITY.md](SECURITY.md) first. Install: the Windows installer from
 > [GitHub Releases](https://github.com/mnemopay/starclaw/releases), `curl -fsSL https://starclaw.dev/install.sh | bash` on
 > macOS/Linux, or `npm install -g starclaw` (Node 25.9+). Developed on Windows 11 x64; the installers are tested in CI
@@ -23,7 +23,7 @@ the untrusted content came from, and everything is provable afterwards.
 Requires **Node.js >= 25.9.0** (see [why](#why-node-259)).
 
 ```bash
-npm install -g starclaw       # 2.0.0-alpha.13 (latest); the macOS/Linux and Windows installers above bundle Node for you
+npm install -g starclaw       # 2.0.0-alpha.14 (latest); the macOS/Linux and Windows installers above bundle Node for you
 npx starclaw app              # guided setup picks a model you already have (Anthropic/OpenRouter/OpenAI key, or Ollama/LM Studio)
 npx starclaw sandbox build    # optional but recommended: builds the Docker sandbox image (needs Docker)
 npx starclaw doctor           # probes every isolation layer and prints what is blocked, which layer is ACTIVE and why
