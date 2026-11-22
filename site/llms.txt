@@ -1,6 +1,6 @@
 # StarClaw
 
-> StarClaw is an open-source (Apache-2.0) autonomous AI agent for research, code changes and scheduled work, by J&B Enterprise LLC. Every action it takes is checked against a policy you control (allow / ask / deny), risky actions are put to a human, generated code runs in a sandbox, and a signed, hash-chained audit log records each decision and action. Current version: 2.0.0-alpha.13 (developer alpha).
+> StarClaw is an open-source (Apache-2.0) autonomous AI agent for research, code changes and scheduled work, by J&B Enterprise LLC. Every action it takes is checked against a policy you control (allow / ask / deny), risky actions are put to a human, generated code runs in a sandbox, and a signed, hash-chained audit log records each decision and action. Current version: 2.0.0-alpha.14 (developer alpha).
 
 Key facts:
 - Does NOT prevent prompt injection; it limits what a steered model can do next. Once untrusted content (web pages, tool output) is in a session, sensitive actions escalate to a human.
