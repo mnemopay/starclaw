@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0-alpha.14 (2026-11-22)
+
+### Added
+* **`starclaw audit export` also writes `chain-bundle.json`**, a MnemoPay AuditChain `ChainBundle` v1 built from the verified signed log. Its `merkle_root` is what `verifyBundle` from `@mnemopay/sdk/governance/audit-chain` recomputes, and what on-chain anchoring sinks take (the Article 12 bundle is sealed by a manifest digest, which those sinks can't use). The CLI prints the root and the file's sha256; `meta.article12_bundle_sha256` links it to the Article 12 bundle written alongside.
+* The bundle is deterministic: event `id` is derived from the record hash, `sequence` = seq, `occurred_at` = ts, `built_at` = the last record's ts, and the original seq/prev/hash/sig are carried in each event's payload so the Ed25519 signatures can still be checked from the bundle. The export is refused unless the SDK's `verifyBundle` accepts it, and an unverified log is refused as before. The StarClaw signed log stays the record of truth; this is an export.
+* Shared fixture `tests/fixtures/starclaw-chainbundle/v1` (signed log, pinned root and sha256). Context: mnemopay/mnemopay-sdk#19.
+
+### Tests
+* 12 new or changed (`tests/chainBundle.test.ts`, `tests/article12.test.ts`): verifyBundle accepts; changing, removing or reordering an event, or the root, fails with `root_mismatch`; signatures re-verify from the bundle; same log gives the same root; fixture matches byte for byte. Also checked against @mnemopay/sdk 1.17.0 (what a fresh install resolves). Not tested against a live anchoring sink.
+
 ## 2.0.0-alpha.13 (2026-11-21)
 
 **This is the first npm release since alpha.11: 2.0.0-alpha.12 was tagged and released on GitHub but never published to npm, so its changes (below) reach npm users with this version.**
