@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
@@ -10,6 +11,7 @@ import { HttpApprover } from './channels/http';
 import { CliApprover } from './governance/approvers';
 import { verifyAuditFile } from './governance/audit';
 import { exportArticle12 } from './governance/article12';
+import { serializeChainBundle } from './governance/chainBundle';
 import { defaultPolicy, loadPolicy } from './governance/policy';
 import { subagentsStatus } from './governance/subagent';
 import { describeLlm } from './llm/factory';
@@ -158,7 +160,7 @@ audit
   });
 audit
   .command('export <file>')
-  .description('verify the log, then write an EU AI Act Article 12 bundle (MnemoPay format: mission.json, events.json/.csv, chain.txt, manifest.json). Refuses a log that does not verify.')
+  .description('verify the log, then write an EU AI Act Article 12 bundle (MnemoPay format: mission.json, events.json/.csv, chain.txt, manifest.json) plus chain-bundle.json (MnemoPay AuditChain ChainBundle v1, for verifyBundle and on-chain anchoring). Refuses a log that does not verify.')
   .requiredOption('--out <dir>', 'output directory (created; existing bundle files are never overwritten)')
   .option('--pubkey <hex>', 'trusted Ed25519 public key (hex)')
   .option('--pubkey-file <file>', 'file containing the trusted public key')
@@ -176,8 +178,12 @@ audit
       const r = exportArticle12(file, { pinnedPublicKeyHex: pub, allowMissingHead: o.allowMissingHead, operatorId: o.operator, retentionMonths, budgetMaxUsd });
       fs.mkdirSync(o.out, { recursive: true });
       for (const f of r.bundle.files) fs.writeFileSync(path.join(o.out, f.path), f.body, { flag: 'wx' });
+      const chainJson = serializeChainBundle(r.chainBundle);
+      fs.writeFileSync(path.join(o.out, 'chain-bundle.json'), chainJson, { flag: 'wx' });
       console.log(`exported ${r.events} events to ${o.out} (log verified; key ${r.verification.keyPinned ? 'pinned' : 'taken from log'})`);
       console.log(`bundle sha256 ${r.bundle.bundleSha256}`);
+      console.log(`chain-bundle.json (MnemoPay ChainBundle v1) merkle_root ${r.chainBundle.merkle_root}`);
+      console.log(`chain-bundle.json sha256 ${createHash('sha256').update(chainJson).digest('hex')}`);
       for (const w of r.verification.warnings) console.log(`  warning: ${w}`);
     } catch (e) {
       fatal(e);

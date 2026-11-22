@@ -8,7 +8,11 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@mnemopay/sdk/governance/audit-chain": ["node_modules/@mnemopay/sdk/dist/governance/audit-chain"]
+    }
   },
   "include": [
     "src/**/*",

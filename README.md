@@ -220,6 +220,17 @@ goal ──> LLM writes code ──> Governor: exec? ──(ask/allow/deny)─�
 | Malicious code that finds a Node permission-model bypass | With the container layer: confined by the container instead. Without it: **not covered** (Node documents the model as a "seat belt") |
 | Malicious code that finds a Linux kernel / container-runtime escape | **Not covered.** Containers share the kernel (on Docker Desktop: the WSL2 VM's). For hostile multi-tenant use put gVisor/Kata/Firecracker underneath |
 
+## Anchoring a StarClaw export (e.g. AgentAudit)
+
+`starclaw audit export <log> --out <dir>` verifies the signed log (refusing one that does not verify) and writes two views of it:
+
+- the EU AI Act Article 12 bundle (`mission.json`, `events.json`/`.csv`, `chain.txt`, `manifest.json`), and
+- `chain-bundle.json`: a MnemoPay AuditChain `ChainBundle` v1. Its `merkle_root` is what `verifyBundle` from `@mnemopay/sdk/governance/audit-chain` recomputes, and what an on-chain anchoring sink records. The command prints the root and the file's sha256.
+
+Each event keeps the original record's seq, hash and Ed25519 signature, so the bundle can be checked back against the signed log. The same log always gives the same `merkle_root`. A shared fixture with pinned values is in `tests/fixtures/starclaw-chainbundle/v1/`.
+
+Tested against `verifyBundle` (a valid bundle passes; changing, removing or reordering an event fails with `root_mismatch`). Not yet tested end to end against AgentAudit's live anchoring sink.
+
 ## Known limits
 
 * Only Windows 11 x64 + Node 25.9.0 was tested. Linux/macOS are untested (the probe will tell you).

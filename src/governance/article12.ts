@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import { buildArticle12Bundle, MerkleAudit, type Article12Bundle, type AuditEvent, type Charter, type MissionResult } from '@mnemopay/sdk';
 import { verifyAuditFile, type AuditRecord, type VerifyResult } from './audit';
+import { buildChainBundle, type ChainBundleMeta } from './chainBundle';
+import type { ChainBundle } from '@mnemopay/sdk/governance/audit-chain';
 
 /**
  * EU AI Act Article 12 export of a StarClaw audit log, built with MnemoPay's bundle writer.
@@ -24,6 +26,8 @@ export interface Article12ExportOptions {
 
 export interface Article12Export {
   bundle: Article12Bundle;
+  /** The same log as a MnemoPay AuditChain ChainBundle v1 (written as chain-bundle.json). */
+  chainBundle: ChainBundle<ChainBundleMeta>;
   verification: VerifyResult;
   events: number;
 }
@@ -70,5 +74,6 @@ export function exportArticle12(file: string, opts: Article12ExportOptions = {})
     finishedAt: records[records.length - 1].ts,
   };
   const bundle = buildArticle12Bundle({ charter, result, audit, retentionMonths: opts.retentionMonths, operatorId: opts.operatorId });
-  return { bundle, verification, events: events.length };
+  const chainBundle = buildChainBundle(records, verification, { article12BundleSha256: bundle.bundleSha256 });
+  return { bundle, chainBundle, verification, events: events.length };
 }

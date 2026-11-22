@@ -93,7 +93,8 @@ describe('Article 12 export (MnemoPay bundle from a verified StarClaw log)', () 
     const good = run();
     assert.equal(good.status, 0, good.stdout + good.stderr);
     assert.match(good.stdout, /exported 5 events/);
-    assert.deepEqual(fs.readdirSync(out).sort(), ['chain.txt', 'events.csv', 'events.json', 'manifest.json', 'mission.json']);
+    assert.deepEqual(fs.readdirSync(out).sort(), ['chain-bundle.json', 'chain.txt', 'events.csv', 'events.json', 'manifest.json', 'mission.json']);
+    assert.match(good.stdout, /merkle_root [0-9a-f]{64}/);
     assert.equal(run().status, 1, 'a second export into the same directory must not overwrite');
 
     const ls = lines();
