@@ -227,9 +227,9 @@ goal ──> LLM writes code ──> Governor: exec? ──(ask/allow/deny)─�
 - the EU AI Act Article 12 bundle (`mission.json`, `events.json`/`.csv`, `chain.txt`, `manifest.json`), and
 - `chain-bundle.json`: a MnemoPay AuditChain `ChainBundle` v1. Its `merkle_root` is what `verifyBundle` from `@mnemopay/sdk/governance/audit-chain` recomputes, and what an on-chain anchoring sink records. The command prints the root and the file's sha256.
 
-Each event keeps the original record's seq, hash and Ed25519 signature, so the bundle can be checked back against the signed log. The same log always gives the same `merkle_root`. A shared fixture with pinned values is in `tests/fixtures/starclaw-chainbundle/v1/`.
+Each event keeps the original record's seq, hash and Ed25519 signature, so the bundle can be checked back against the signed log. The same log always gives the same `merkle_root`. Since 2.0.0-alpha.15, `meta.event_count` gives the number of events, so a sink does not have to count them (it is in `meta`, so `merkle_root` is unchanged). Shared fixtures with pinned values: `tests/fixtures/starclaw-chainbundle/v2/` (current output, with `event_count`) and `v1/` (frozen, alpha.14 output without it; same `merkle_root`).
 
-Tested against `verifyBundle` (a valid bundle passes; changing, removing or reordering an event fails with `root_mismatch`). Not yet tested end to end against AgentAudit's live anchoring sink.
+Tested against `verifyBundle` (a valid bundle passes; changing, removing or reordering an event fails with `root_mismatch`). AgentAudit reported the v1 fixture passing their `AuditVaultAnchorSink` offline and on a local anvil chain (mnemopay/mnemopay-sdk#19); a public testnet (Base Sepolia) run has not been reported yet.
 
 ## Known limits
 
