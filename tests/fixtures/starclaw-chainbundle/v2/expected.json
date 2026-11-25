@@ -1,0 +1,10 @@
+{
+  "format": "starclaw-chainbundle/1",
+  "events": 5,
+  "event_count": 5,
+  "merkle_root": "35a592434300017e903062fbff4488a2f3322479626289c37e78984fb54ddd04",
+  "chain_bundle_sha256": "df1e3f662f1663103cd97aa9af4c8c578e722e3d6628cca3007ad344e072ac6e",
+  "built_at": "2026-11-22T02:36:39.692Z",
+  "public_key_hex": "b67ebe617b4c2e365de3ca3d89fd1a227206ff328f542f369085c135db72fecc",
+  "same_root_as": "v1"
+}

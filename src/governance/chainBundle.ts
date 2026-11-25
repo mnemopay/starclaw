@@ -23,6 +23,12 @@ export interface ChainBundleMeta extends Record<string, unknown> {
   log_last_hash: string;
   public_key_hex: string | null;
   key_pinned: boolean;
+  /**
+   * Number of events in this bundle (= `events.length` = `log_records`). Added in 2.0.0-alpha.15 so anchoring sinks
+   * (e.g. AgentAudit's) can record the event count without walking `events`. It is in `meta` only, so it changes the
+   * file's sha256 but not `merkle_root` (leaves are the events). Fixture v1 predates it and is frozen; see v2.
+   */
+  event_count: number;
   /** sha256 of the Article 12 bundle written alongside, when there is one. */
   article12_bundle_sha256?: string;
 }
@@ -66,6 +72,7 @@ export function buildChainBundle(
     log_last_hash: verification.lastHash,
     public_key_hex: verification.publicKeyHex ?? null,
     key_pinned: verification.keyPinned,
+    event_count: records.length,
     ...(extra.article12BundleSha256 ? { article12_bundle_sha256: extra.article12BundleSha256 } : {}),
   };
   // built_at = the last record's timestamp, so the same log always gives the same bytes.

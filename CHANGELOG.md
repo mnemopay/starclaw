@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.0-alpha.15 (2026-11-24)
+
+### Added
+* **`chain-bundle.json` carries `meta.event_count`** (the number of events, `= events.length`). AgentAudit ran the alpha.14 export through their on-chain anchor sink (PASS, mnemopay/mnemopay-sdk#19) and noted that without it their sink records `eventCount = 1` on-chain instead of the real count. The field is in `meta` only, so `merkle_root` is unchanged for the same log; the file's sha256 changes. It is additive: ChainBundle `version` stays 1, `meta.format` stays `starclaw-chainbundle/1`, and the other fields keep their order (`event_count` comes after `key_pinned`).
+* **New fixture `tests/fixtures/starclaw-chainbundle/v2`**: the same signed log as v1, `chain-bundle.json` rebuilt with `event_count: 5`. `merkle_root` `35a592434300017e903062fbff4488a2f3322479626289c37e78984fb54ddd04` (equal to v1's), sha256 `df1e3f662f1663103cd97aa9af4c8c578e722e3d6628cca3007ad344e072ac6e`.
+
+### Unchanged on purpose
+* **Fixture v1 is frozen** (AgentAudit's CI pins its bytes): `v1/chain-bundle.json` keeps sha256 `54f963b6...4824abfc` and no `event_count`. A current StarClaw rebuilding the v1 log produces the v2 bytes, not v1's.
+
+### Tests
+* `tests/chainBundle.test.ts`: v1 bytes and sha256 still pinned; rebuild equals v1 once `event_count` is removed; v2 rebuilt byte for byte with its pinned sha256; v2 `verifyBundle` ok; v1 root == v2 root; the Article 12 export's chain bundle has `event_count` and the expected meta key order. `tests/article12.test.ts`: the CLI-written `chain-bundle.json` has `event_count`.
+
 ## 2.0.0-alpha.14 (2026-11-22)
 
 ### Added
