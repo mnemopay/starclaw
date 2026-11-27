@@ -2,6 +2,12 @@ name: windows-installer
 
 # Builds StarClaw-Setup-<version>.exe and proves it on a clean Windows VM: silent install, the console
 # starts from the installed files, its API answers with the generated key, uninstall keeps user data.
+#
+# Code signing (SignPath, see docs/SIGNING.md) is OFF until the repository has the secret SIGNPATH_API_TOKEN and the
+# variables (or secrets) SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG and SIGNPATH_POLICY_SLUG. Without all four the
+# workflow does exactly what it did before: it builds, smoke-tests and releases the installer UNSIGNED. With all four,
+# on a version tag (or a manual run) the smoke-tested setup.exe is sent to SignPath, and the release publishes only the
+# signed file; if signing fails or is not approved in time, nothing is released (it never falls back to unsigned).
 on:
   workflow_dispatch:
   push:
@@ -17,7 +23,26 @@ jobs:
     runs-on: windows-latest
     outputs:
       version: ${{ steps.pack.outputs.version }}
+      signing: ${{ steps.gate.outputs.signing }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
+      - name: Is code signing configured?
+        id: gate
+        shell: pwsh
+        env:
+          HAS_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+          HAS_ORG: ${{ (vars.SIGNPATH_ORGANIZATION_ID || secrets.SIGNPATH_ORGANIZATION_ID) != '' }}
+          HAS_PROJECT: ${{ (vars.SIGNPATH_PROJECT_SLUG || secrets.SIGNPATH_PROJECT_SLUG) != '' }}
+          HAS_POLICY: ${{ (vars.SIGNPATH_POLICY_SLUG || secrets.SIGNPATH_POLICY_SLUG) != '' }}
+          # Sign release builds only: version tags, or a manual run. Never pull requests.
+          WANTED: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+        run: |
+          $flags = @($env:HAS_TOKEN, $env:HAS_ORG, $env:HAS_PROJECT, $env:HAS_POLICY)
+          $configured = -not ($flags -contains 'false')
+          if (($flags -contains 'true') -and -not $configured) { Write-Host "::warning::SignPath is only partly configured (token=$env:HAS_TOKEN org=$env:HAS_ORG project=$env:HAS_PROJECT policy=$env:HAS_POLICY); building UNSIGNED" }
+          $signing = if ($configured -and $env:WANTED -eq 'true') { 'true' } else { 'false' }
+          Write-Host "code signing for this run: $signing (configured=$configured, release build=$env:WANTED)"
+          "signing=$signing" | Out-File $env:GITHUB_OUTPUT -Append
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -86,22 +111,74 @@ jobs:
           Write-Host 'install, run, uninstall: OK (user data kept)'
 
       - uses: actions/upload-artifact@v4
+        id: upload
         with:
           name: StarClaw-Setup-${{ steps.pack.outputs.version }}-UNSIGNED
           path: installer/windows/output/*.exe
           if-no-files-found: error
 
-  # Version tags only: publish the installer that the smoke test above just proved, as a GitHub prerelease.
-  release:
+  # Only when signing is configured (see the top of this file). Sends the exact setup.exe the smoke test proved to
+  # SignPath, waits for the manual approval SignPath requires for every open-source release, checks the signature
+  # and keeps the signed file as its own artifact. The bundled node.exe is NOT re-signed: it is the OpenJS
+  # Foundation's binary, already signed by them, and SignPath Foundation only signs a project's own builds.
+  sign:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.build.outputs.signing == 'true'
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Submit to SignPath and wait for the signed installer
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@a2c5b60d9c75f073142b653c354b632eedce097b # v3.2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID || secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || secrets.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ needs.build.outputs.artifact-id }}
+          wait-for-completion: true
+          # Every OSS signing request needs a human approval in SignPath; give the approver an hour.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed
+          parameters: |
+            version: ${{ toJSON(needs.build.outputs.version) }}
+      - name: Check the signature
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem signed -Recurse -Filter 'StarClaw-Setup-*.exe')
+          if ($files.Count -ne 1) { throw "expected exactly one signed StarClaw-Setup-*.exe, found $($files.Count)" }
+          $f = $files[0]
+          $sig = Get-AuthenticodeSignature $f.FullName
+          Write-Host "$($f.Name): $($sig.Status) / $($sig.SignerCertificate.Subject) / timestamped: $($null -ne $sig.TimeStamperCertificate)"
+          if ($sig.Status -ne 'Valid') { throw "signature status is $($sig.Status): $($sig.StatusMessage)" }
+          if ($null -eq $sig.TimeStamperCertificate) { throw 'signature has no timestamp' }
+          New-Item -ItemType Directory signed-out | Out-Null
+          Move-Item $f.FullName (Join-Path signed-out $f.Name)
+          "{0}  sha256 {1}" -f $f.Name, (Get-FileHash (Join-Path signed-out $f.Name)).Hash.ToLower()
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StarClaw-Setup-${{ needs.build.outputs.version }}-SIGNED
+          path: signed-out/*.exe
+          if-no-files-found: error
+
+  # Version tags only: publish the installer that the smoke test above just proved, as a GitHub prerelease.
+  # Signed when signing is configured; if signing was attempted and failed, this job does not run (no unsigned fallback).
+  release:
+    needs: [build, sign]
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' &&
+      (needs.sign.result == 'success' || (needs.sign.result == 'skipped' && needs.build.outputs.signing != 'true'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      SIGNED: ${{ needs.sign.result == 'success' }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: StarClaw-Setup-${{ needs.build.outputs.version }}-UNSIGNED
+          name: StarClaw-Setup-${{ needs.build.outputs.version }}-${{ needs.sign.result == 'success' && 'SIGNED' || 'UNSIGNED' }}
           path: dist
       - name: Checksums and notes
         run: |
@@ -109,7 +186,11 @@ jobs:
           {
             echo "StarClaw ${{ needs.build.outputs.version }} for Windows (per-user install, no admin prompt). Bundles Node 25.9.0."
             echo
-            echo '> **Not code-signed yet.** Windows SmartScreen will say "Windows protected your PC": click *More info* -> *Run anyway*. Check the download against SHA256SUMS.txt first.'
+            if [ "$SIGNED" = "true" ]; then
+              echo '> **Code-signed.** Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/); see the [code signing policy](https://github.com/mnemopay/starclaw/blob/main/docs/SIGNING.md). A newly signed file can still show a SmartScreen prompt until it builds reputation. Check the download against SHA256SUMS.txt.'
+            else
+              echo '> **Not code-signed yet.** Windows SmartScreen will say "Windows protected your PC": click *More info* -> *Run anyway*. Check the download against SHA256SUMS.txt first.'
+            fi
             echo
             echo 'This exact file was installed, run (console + API) and uninstalled on a clean Windows VM by CI before this release was published.'
             echo
