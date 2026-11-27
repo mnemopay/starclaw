@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copy of the artifact configuration to paste into SignPath (Project > Artifact configurations).
+  SignPath reads the configuration from its own UI, not from this file; this copy is kept in the repo so changes are
+  reviewed like code. See docs/SIGNING.md.
+
+  The GitHub artifact uploaded by .github/workflows/windows-installer.yml is a ZIP holding one file,
+  StarClaw-Setup-<version>.exe (Inno Setup). Only that setup.exe is signed. Everything inside it (the official Node
+  build, already signed by the OpenJS Foundation, and npm packages) is upstream code and is not signed with this
+  project's certificate.
+
+  product-name / product-version restrictions are required by the SignPath Foundation conditions; the workflow passes
+  `version` (the package.json version) and starclaw.iss sets VersionInfoProductName=StarClaw and
+  VersionInfoProductTextVersion=<that version>.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="StarClaw-Setup-*.exe" product-name="StarClaw" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

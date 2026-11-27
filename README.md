@@ -261,6 +261,13 @@ default, taint-based escalation for actions that follow untrusted input, hard sp
 model's reach, and an offline-verifiable audit trail. Each is implemented and tested here; none is a claim that
 StarClaw is safe for production use today.
 
+## Code signing policy
+
+Windows installers are **not code-signed yet**. StarClaw has applied for free code signing from the
+[SignPath Foundation](https://signpath.org/); if approved, releases will carry: *Free code signing provided by
+[SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).* What gets
+signed, who approves each release, and the privacy statement: [docs/SIGNING.md](docs/SIGNING.md).
+
 ## Development
 
 ```bash

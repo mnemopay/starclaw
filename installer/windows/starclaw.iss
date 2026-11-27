@@ -17,6 +17,9 @@ AppName=StarClaw
 AppVersion={#AppVersion}
 AppPublisher=J&B Enterprise LLC
 AppPublisherURL=https://starclaw.dev
+; Set explicitly (not left to Inno's defaults): SignPath's metadata restrictions check these on the signed setup.exe.
+VersionInfoProductName=StarClaw
+VersionInfoProductTextVersion={#AppVersion}
 DefaultDirName={localappdata}\Programs\StarClaw
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
