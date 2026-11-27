@@ -1,6 +1,6 @@
 # Code signing policy
 
-**Status: applied for, not active.** StarClaw has applied to the SignPath Foundation's free code signing program for
+**Status: planned, not active.** StarClaw plans to apply to the SignPath Foundation's free code signing program for
 open-source projects. Until that application is approved and this page says otherwise, **every StarClaw Windows
 installer is unsigned**, and Windows SmartScreen will warn about it. Check each download against the release's
 `SHA256SUMS.txt`.
