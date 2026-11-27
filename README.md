@@ -263,7 +263,7 @@ StarClaw is safe for production use today.
 
 ## Code signing policy
 
-Windows installers are **not code-signed yet**. StarClaw has applied for free code signing from the
+Windows installers are **not code-signed yet**. StarClaw plans to apply for free code signing from the
 [SignPath Foundation](https://signpath.org/); if approved, releases will carry: *Free code signing provided by
 [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).* What gets
 signed, who approves each release, and the privacy statement: [docs/SIGNING.md](docs/SIGNING.md).
